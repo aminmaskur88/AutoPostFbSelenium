@@ -8,7 +8,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
-from utils import setup_driver, cleanup_profile
+from utils import setup_driver, cleanup_profile, get_lan_ip
 
 # Pastikan DISPLAY teratur untuk VNC di Termux
 if "com.termux" in os.environ.get("PREFIX", ""):
@@ -65,7 +65,8 @@ def run_fb_simulation(profile_name, folder_post):
     try:
         print("[*] Membuka Facebook...")
         if "com.termux" in os.environ.get("PREFIX", ""):
-            print("    [!] (Opsional) Buka VNC Viewer -> 127.0.0.1:5901 untuk melihat layar.")
+            lan_ip = get_lan_ip()
+            print(f"    [!] (Opsional) Buka VNC Viewer -> {lan_ip}:5901 (PC/HP Lain) atau 127.0.0.1:5901 (Lokal)")
         driver.get("https://www.facebook.com/")
         human_delay(5, 8)
 

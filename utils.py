@@ -1,5 +1,6 @@
 import os
 import shutil
+import socket
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -14,6 +15,18 @@ if IS_TERMUX:
 else:
     CHROME_PATH = None
     CHROMEDRIVER_PATH = None
+
+def get_lan_ip():
+    """Mengambil alamat IP lokal (LAN) perangkat secara dinamis."""
+    try:
+        # Membuat socket dummy untuk mendapatkan IP routing lokal
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
 def cleanup_profile(profile_path):
     """Menghapus folder cache dan file tidak penting agar ukuran profil tetap kecil."""

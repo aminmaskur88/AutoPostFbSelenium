@@ -1,7 +1,7 @@
 import os
 import time
 import json
-from utils import setup_driver, cleanup_profile
+from utils import setup_driver, cleanup_profile, get_lan_ip
 
 def main():
     print("=== Facebook Login & Cookie Extractor ===")
@@ -23,7 +23,10 @@ def main():
 
     print("\nMembuka Facebook... Silakan login secara MANUAL.")
     if "com.termux" in os.environ.get("PREFIX", ""):
-        print(">>> [!] BUKA VNC VIEWER SEKARANG! Sambungkan ke alamat: 127.0.0.1:5901 <<<")
+        lan_ip = get_lan_ip()
+        print(f">>> [!] BUKA VNC VIEWER SEKARANG! Sambungkan ke alamat:")
+        print(f"        (Dari HP yang sama): 127.0.0.1:5901")
+        print(f"        (Dari PC/HP Lain)  : {lan_ip}:5901")
     print("Script akan otomatis mendeteksi jika Anda sudah berhasil login.")
     
     driver = setup_driver(profile_path)

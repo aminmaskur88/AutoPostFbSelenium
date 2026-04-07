@@ -3,7 +3,7 @@ import time
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from utils import setup_driver, cleanup_profile
+from utils import setup_driver, cleanup_profile, get_lan_ip
 
 def main():
     print("\n" + "="*50)
@@ -28,7 +28,10 @@ def main():
     try:
         print(f"[*] Membuka halaman: {target_url}")
         if "com.termux" in os.environ.get("PREFIX", ""):
-            print("    [!] BUKA VNC VIEWER SEKARANG! Sambungkan ke alamat: 127.0.0.1:5901")
+            lan_ip = get_lan_ip()
+            print(f"    [!] BUKA VNC VIEWER SEKARANG! Sambungkan ke alamat:")
+            print(f"        (Dari HP yang sama): 127.0.0.1:5901")
+            print(f"        (Dari PC/HP Lain)  : {lan_ip}:5901")
         driver.get(target_url)
         
         # Opsi Upload Video TikTok (Opsional)
