@@ -36,7 +36,7 @@ def scroll_to_top(driver):
     except Exception as e:
         print(f"[-] Gagal scroll ke atas: {e}")
 
-def run_fb_simulation(profile_name, folder_post):
+def run_fb_simulation(profile_name, folder_post, headless=False):
     profile_path = os.path.join(os.getcwd(), "fb_profiles", profile_name)
     if not os.path.exists(profile_path):
         print(f"[!] Folder profil '{profile_name}' tidak ditemukan!")
@@ -59,12 +59,12 @@ def run_fb_simulation(profile_name, folder_post):
 
     # Bersihkan sebelum buka
     cleanup_profile(profile_path)
-    driver = setup_driver(profile_path)
+    driver = setup_driver(profile_path, headless=headless)
     wait = WebDriverWait(driver, 30)
 
     try:
         print("[*] Membuka Facebook...")
-        if "com.termux" in os.environ.get("PREFIX", ""):
+        if not headless and "com.termux" in os.environ.get("PREFIX", ""):
             lan_ip = get_lan_ip()
             print(f"    [!] (Opsional) Buka VNC Viewer -> {lan_ip}:5901 (PC/HP Lain) atau 127.0.0.1:5901 (Lokal)")
         driver.get("https://www.facebook.com/")
@@ -180,6 +180,7 @@ def save_config(config):
         json.dump(config, f, indent=4)
 
 if __name__ == "__main__":
+    is_headless = input("Gunakan Mode Headless (n VNC)? (y/n): ").lower() == 'y'
     while True:
         print("\n=== FB UPLOADER ===")
         print("1. Upload Konten\n2. Atur Folder Akun\n3. Keluar")
@@ -225,12 +226,12 @@ if __name__ == "__main__":
                 
                 if mode == '1':
                     for i, f in enumerate(folders): print(f"{i+1}. {f}")
-                    run_fb_simulation(p, os.path.join(base_dir, folders[int(input("Nomor: "))-1]))
+                    run_fb_simulation(p, os.path.join(base_dir, folders[int(input("Nomor: "))-1]), headless=is_headless)
                 elif mode == '2':
                     interval = int(input("Interval (menit): "))
                     for i, f in enumerate(folders):
                         print(f"[{i+1}/{len(folders)}] Processing {f}...")
-                        run_fb_simulation(p, os.path.join(base_dir, f))
+                        run_fb_simulation(p, os.path.join(base_dir, f), headless=is_headless)
                         if i < len(folders)-1:
                             wait_seconds = interval * 60
                             print(f"\n[*] Upload selesai. Menunggu {interval} menit untuk folder berikutnya...")
