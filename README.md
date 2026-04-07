@@ -58,6 +58,30 @@ pip install selenium
 
 ---
 
+## 🎨 Panduan Grafis (VNC/X11) di Termux
+
+Karena Selenium membutuhkan tampilan browser, Anda harus menjalankan server grafis di Termux:
+
+### 🛠️ Persiapan Awal (Sekali Saja)
+1.  **Instal Aplikasi Android:** Unduh dan instal APK [Termux-X11](https://github.com/termux/termux-x11/releases) di HP Anda.
+2.  **Konfigurasi Termux:** Jalankan perintah instalasi di bagian atas (Langkah 1).
+
+### 🚀 Alur Kerja Sehari-hari (Workflow)
+Ikuti urutan ini setiap kali ingin menjalankan skrip:
+
+1.  **Buka Server X11:** Di Termux, jalankan perintah:
+    ```bash
+    termux-x11 :1 &
+    ```
+2.  **Buka Aplikasi Termux-X11:** Keluar ke home HP, buka aplikasi **Termux-X11** (layar akan hitam, biarkan saja).
+3.  **Jalankan Skrip:** Kembali ke Termux, jalankan skrip Anda:
+    ```bash
+    python fb_uploader.py
+    ```
+4.  **Lihat Browser:** Pindah kembali ke aplikasi **Termux-X11**. Browser Chromium akan muncul di sana dan Anda bisa berinteraksi menggunakan layar sentuh.
+
+---
+
 ## 💻 Cara Penggunaan
 
 ### 1️⃣ Setup Profil (Login Pertama Kali)
