@@ -27,6 +27,8 @@ def main():
 
     try:
         print(f"[*] Membuka halaman: {target_url}")
+        if "com.termux" in os.environ.get("PREFIX", ""):
+            print("    [!] BUKA VNC VIEWER SEKARANG! Sambungkan ke alamat: 127.0.0.1:5901")
         driver.get(target_url)
         
         # Opsi Upload Video TikTok (Opsional)

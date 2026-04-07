@@ -22,6 +22,8 @@ def main():
     cleanup_profile(profile_path)
 
     print("\nMembuka Facebook... Silakan login secara MANUAL.")
+    if "com.termux" in os.environ.get("PREFIX", ""):
+        print(">>> [!] BUKA VNC VIEWER SEKARANG! Sambungkan ke alamat: 127.0.0.1:5901 <<<")
     print("Script akan otomatis mendeteksi jika Anda sudah berhasil login.")
     
     driver = setup_driver(profile_path)

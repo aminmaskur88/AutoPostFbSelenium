@@ -64,6 +64,8 @@ def run_fb_simulation(profile_name, folder_post):
 
     try:
         print("[*] Membuka Facebook...")
+        if "com.termux" in os.environ.get("PREFIX", ""):
+            print("    [!] (Opsional) Buka VNC Viewer -> 127.0.0.1:5901 untuk melihat layar.")
         driver.get("https://www.facebook.com/")
         human_delay(5, 8)
 
