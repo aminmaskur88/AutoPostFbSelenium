@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Selenium / Driver
+chromedriver
+chromedriver.exe
+geckodriver
+geckodriver.exe
+chrome_err.log
+DevToolsActivePort
+
+# Project Specific
+fb_profiles/
+tiktok_profile/
+Cookies/
+config.json
+uploadedfb.txt
+.gemini/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
