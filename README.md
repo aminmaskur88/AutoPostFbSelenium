@@ -46,16 +46,67 @@ python fb_uploader.py
    - Biarkan script berjalan sampai selesai.
 
 ## 📂 Struktur Folder Konten
-Setiap folder postingan harus memiliki struktur minimal sebagai berikut:
+
+Setiap folder postingan harus memiliki struktur sebagai berikut:
+
 ```text
+
 FolderPostingan/
-├───post_meta.json      # Metadata (Judul, Deskripsi, Hashtag)
-├───video.mp4           # Atau file foto (.jpg/.png)
+
+├───post_meta.json      # File wajib: Berisi detail postingan (JSON)
+
+├───video.mp4           # File media: Bisa berupa .mp4, .jpg, atau .png
+
 └───uploadedfb.txt      # (Otomatis dibuat jika sudah berhasil diunggah)
+
 ```
 
+
+
+### 📄 Contoh Isi `post_meta.json`
+
+Pastikan file `post_meta.json` Anda memiliki format seperti di bawah ini agar script dapat membaca deskripsi dan judul dengan benar:
+
+
+
+```json
+
+{
+
+    "post_title": "Judul Konten Anda",
+
+    "summary": "Deskripsi atau cerita singkat mengenai isi video/foto ini.",
+
+    "cta": "Klik link di bio untuk informasi lebih lanjut!",
+
+    "hashtags": [
+
+        "#facebook",
+
+        "#viral",
+
+        "#trending",
+
+        "#autopost"
+
+    ]
+
+}
+
+```
+
+
+
+*Script akan otomatis menggabungkan `post_title`, `summary`, `cta`, dan `hashtags` menjadi satu caption yang rapi saat mengunggah.*
+
+
+
 ## ⚠️ Keamanan
+
 Jangan membagikan folder `fb_profiles/` atau `Cookies/` kepada siapa pun, karena folder tersebut berisi sesi login aktif Anda.
 
+
+
 ## 📝 Lisensi
+
 Bebas digunakan untuk penggunaan pribadi. Penulis tidak bertanggung jawab atas penyalahgunaan alat ini yang melanggar ketentuan layanan platform media sosial.
