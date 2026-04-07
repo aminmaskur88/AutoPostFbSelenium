@@ -1,112 +1,99 @@
-# AutoPostFbSelenium (Manager Mode)
+# 🚀 AutoPostFbSelenium (Termux & PC)
 
-Alat manajemen otomatis untuk memposting konten (Foto/Video) ke Facebook menggunakan Selenium dengan dukungan profil Chrome terpisah untuk banyak akun.
+Aplikasi otomatisasi berbasis Python dan Selenium yang dirancang khusus untuk mengelola postingan Facebook secara massal dan cerdas. Aplikasi ini mendukung penuh penggunaan di **Android (via Termux + VNC)** maupun **PC/Laptop**, dengan fitur optimasi profil agar ringan dijalankan di perangkat mobile.
 
-## 🚀 Fitur Utama
-- **Multi-Account Management:** Mendukung banyak akun dengan profil Chrome yang terpisah.
-- **Dynamic Content Directory:** Mengatur folder konten yang berbeda untuk setiap akun secara manual dan menyimpannya.
-- **Upload Tracker:** Secara otomatis menandai folder yang sudah diunggah (`uploadedfb.txt`) dan hanya menampilkan konten baru yang belum diposting.
-- **Auto Upload Mode:** Mengunggah banyak konten secara berurutan dengan interval waktu yang dapat ditentukan.
-- **Upload Filters & Sorting:**
-  - Berurutan atau Acak (Random).
-  - Hanya mengunggah Foto atau hanya mengunggah Video.
-  - Sesuaikan urutan unggahan secara manual.
-- **Interactive CLI:** Antarmuka menu yang bersih dan mudah digunakan di terminal/Termux.
-- **Countdown Timer:** Hitung mundur waktu tunggu antar postingan secara real-time.
+Aplikasi ini memudahkan Anda mengunggah konten (video/gambar) dari folder terpisah ke banyak akun/profil Facebook dengan sistem penjadwalan (interval) dan deteksi anti-bot yang canggih.
 
-## 🛠️ Cara Penggunaan
+---
 
-### 1. Persiapan Awal
-Pastikan Anda sudah menginstal dependencies (Selenium dan Driver Chrome). Di Termux, jalankan:
+## ✨ Fitur Utama
+
+*   **📱 Support Termux & PC:** Deteksi otomatis environment untuk konfigurasi driver yang tepat (Chromium di Termux atau Chrome di PC).
+*   **👤 Multi-Profile Management:** Mengelola banyak akun Facebook dengan folder profil terpisah (`fb_profiles/`) sehingga sesi login tetap awet dan tidak saling bentrok.
+*   **🤖 Smart Automation:**
+    *   **Auto-Login/Cookie Extractor:** Membantu mengambil session cookies agar script bisa berjalan tanpa perlu login ulang terus-menerus.
+    *   **Human-Like Interaction:** Simulasi scroll, jeda acak (human delay), dan simulasi pengetikan untuk meminimalisir deteksi bot.
+    *   **Drag & Drop Media Injection:** Teknik suntik file media langsung ke elemen input tersembunyi untuk menghindari kendala UI dialog di Android.
+*   **📂 Folder-Based Posting:** Postingan disusun per-folder yang berisi media dan metadata (`post_meta.json`). Script akan membaca judul, deskripsi, dan hashtag secara otomatis.
+*   **⏳ Interval & Countdown:** Fitur unggah otomatis semua konten dengan jeda waktu (interval) yang dilengkapi tampilan hitung mundur (countdown) di terminal.
+*   **🧹 Auto-Cleanup Profile:** Secara otomatis membersihkan cache, shader, dan log Chrome yang tidak penting untuk menghemat ruang penyimpanan HP (sangat krusial untuk pengguna Termux).
+*   **🔍 XPath Ultimate Helper:** Dilengkapi skrip pembantu untuk mengidentifikasi elemen web secara visual jika struktur Facebook berubah.
+
+---
+
+## 📂 Struktur Proyek & Panduan File
+
+| File / Folder | Deskripsi |
+| :--- | :--- |
+| **`fb_uploader.py`** | ⚙️ **Main Engine:** Skrip utama untuk melakukan posting (Manual/Auto). |
+| **`fb_login.py`** | 🔑 **Login Helper:** Digunakan untuk login pertama kali dan mengekstrak cookies/session. |
+| **`utils.py`** | 🛠️ **Core Utils:** Berisi konfigurasi driver, anti-bot, dan fungsi pembersih profil. |
+| **`get_xpath.py`** | 🔍 **Dev Tool:** Skrip bantuan untuk mencari XPath elemen secara interaktif. |
+| **`config.json`** | 📋 **Configuration:** Menyimpan pemetaan path folder konten untuk setiap profil. |
+| **`fb_profiles/`** | 👤 **User Data:** Tempat menyimpan data sesi/browser Chrome per akun (Jangan dihapus). |
+| **`Cookies/`** | 🍪 **JSON Cookies:** Hasil ekstrak cookie dari `fb_login.py` (sebagai backup). |
+
+---
+
+## 🚀 Panduan Instalasi (Termux)
+
+### 1. Persiapan Environment
+Pastikan Anda sudah menginstal Python, Chromium, dan X11 di Termux:
 ```bash
-pkg install chromium
-pkg install chromedriver
+pkg update && pkg upgrade
+pkg install python chromium chromedriver x11-repo tur-repo
+pkg install termux-x11-nightly # Jika menggunakan VNC/X11
+```
+
+### 2. Klon Repositori
+```bash
+git clone https://github.com/aminmaskur88/AutoPostFbSelenium.git
+cd AutoPostFbSelenium
+```
+
+### 3. Instal Dependensi
+```bash
 pip install selenium
 ```
 
-### 2. Login Akun
-Gunakan menu login untuk membuat profil dan masuk ke akun Facebook Anda:
+---
+
+## 💻 Cara Penggunaan
+
+### 1️⃣ Setup Profil (Login Pertama Kali)
+Jalankan `fb_login.py` untuk mendaftarkan akun baru:
 ```bash
 python fb_login.py
 ```
-*Ikuti petunjuk di terminal untuk login manual di browser Chrome yang terbuka.*
+*   Masukkan nama akun (misal: `AkunUtama`).
+*   Browser akan terbuka (di VNC), silakan login manual sampai masuk beranda.
+*   Tekan Enter di terminal jika sudah selesai. Sesi Anda akan tersimpan secara permanen.
 
-### 3. Menjalankan Manager
-Gunakan program utama untuk mengelola konten dan mulai mengunggah:
+### 2️⃣ Menyiapkan Konten
+Buat folder konten di dalam direktori pilihan Anda. Setiap folder postingan harus berisi:
+*   1 file media (Foto `.jpg`/`.png` atau Video `.mp4`).
+*   1 file `post_meta.json` dengan format:
+```json
+{
+    "post_title": "Judul Keren",
+    "summary": "Deskripsi postingan di sini...",
+    "cta": "Klik link di bio!",
+    "hashtags": ["#viral", "#facebook", "#otomatis"]
+}
+```
+
+### 3️⃣ Menjalankan Uploader
+Jalankan skrip utama:
 ```bash
 python fb_uploader.py
 ```
+*   **Menu 2:** Atur folder sumber konten untuk profil Anda (Lakukan ini sekali saja).
+*   **Menu 1:** Pilih profil, lalu pilih **Auto All** untuk mengunggah semua folder secara berurutan dengan interval.
 
-#### Menu di dalam `fb_uploader.py`:
-1. **Atur Folder Upload Akun (Menu 2):** Masukkan path direktori folder konten untuk setiap profil (Misal: `/storage/emulated/0/PostinganKu`).
-2. **Upload Konten (Menu 1):**
-   - Pilih Profil Akun.
-   - Pilih Mode (Manual untuk satu folder atau Auto untuk banyak folder).
-   - Tentukan filter (Foto/Video/Acak/Urutan) dan interval waktu (menit).
-   - Biarkan script berjalan sampai selesai.
+---
 
-## 📂 Struktur Folder Konten
+## 🤖 Special Thanks
+Dikembangkan dengan bantuan kecerdasan buatan:
+*   **Gemini AI (Google)** - Optimasi logika Selenium, sistem pembersihan profil, dan penyusunan dokumentasi profesional ini.
 
-Setiap folder postingan harus memiliki struktur sebagai berikut:
-
-```text
-
-FolderPostingan/
-
-├───post_meta.json      # File wajib: Berisi detail postingan (JSON)
-
-├───video.mp4           # File media: Bisa berupa .mp4, .jpg, atau .png
-
-└───uploadedfb.txt      # (Otomatis dibuat jika sudah berhasil diunggah)
-
-```
-
-
-
-### 📄 Contoh Isi `post_meta.json`
-
-Pastikan file `post_meta.json` Anda memiliki format seperti di bawah ini agar script dapat membaca deskripsi dan judul dengan benar:
-
-
-
-```json
-
-{
-
-    "post_title": "Judul Konten Anda",
-
-    "summary": "Deskripsi atau cerita singkat mengenai isi video/foto ini.",
-
-    "cta": "Klik link di bio untuk informasi lebih lanjut!",
-
-    "hashtags": [
-
-        "#facebook",
-
-        "#viral",
-
-        "#trending",
-
-        "#autopost"
-
-    ]
-
-}
-
-```
-
-
-
-*Script akan otomatis menggabungkan `post_title`, `summary`, `cta`, dan `hashtags` menjadi satu caption yang rapi saat mengunggah.*
-
-
-
-## ⚠️ Keamanan
-
-Jangan membagikan folder `fb_profiles/` atau `Cookies/` kepada siapa pun, karena folder tersebut berisi sesi login aktif Anda.
-
-
-
-## 📝 Lisensi
-
-Bebas digunakan untuk penggunaan pribadi. Penulis tidak bertanggung jawab atas penyalahgunaan alat ini yang melanggar ketentuan layanan platform media sosial.
+**License:** MIT | **Author:** Amin Maskur
