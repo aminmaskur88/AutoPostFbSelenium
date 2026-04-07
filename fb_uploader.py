@@ -106,34 +106,65 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='dialog']")))
         human_delay(2, 3)
 
-        # Input Caption
+        # --- INPUT CAPTION (Versi Original) ---
+        print("[*] Menyiapkan caption dari metadata...")
         caption_text = f"{meta.get('post_title', '')}\n\n{meta.get('summary', '')}\n\n{meta.get('cta', '')}\n\n" + " ".join(meta.get('hashtags', []))
+        
         try:
+            print("[*] Mencari dan mengklik area pancingan di dalam dialog...")
+            dialog_trigger_xpath = (
+                "//div[@role='dialog']//span[contains(text(), 'Apa yang Anda pikirkan')]"
+                "| //div[@role='dialog']//span[contains(text(), \"What's on your mind\")]"
+                "| //div[@role='dialog']//div[@aria-label[contains(., 'Apa yang Anda pikirkan')]]"
+                "| //div[@role='dialog']//div[@aria-label[contains(., \"What's on your mind\")]]"
+                "| //div[@role='dialog']//div[@role='textbox'][@contenteditable='true']"
+            )
+            trigger_el = wait.until(EC.element_to_be_clickable((By.XPATH, dialog_trigger_xpath)))
+            trigger_el.click()
+            human_delay(1, 2)
+            
+            # Pisahkan kata pertama untuk memicu fokus
+            words = caption_text.split(" ", 1)
+            first_word = words[0] + " " if len(words) > 1 else words[0]
+            rest_of_text = words[1] if len(words) > 1 else ""
+
+            # Gunakan JS untuk copy sisa teks
+            js_copy = "var t = arguments[0]; var a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); document.execCommand('copy'); document.body.removeChild(a);"
+            driver.execute_script(js_copy, rest_of_text)
+            
             real_textbox_xpath = "//div[@role='dialog']//div[@role='textbox'][@contenteditable='true']"
             real_textbox = wait.until(EC.presence_of_element_located((By.XPATH, real_textbox_xpath)))
             
-            # Copy-Paste Caption via JS Clipboard (Lebih cepat & stabil)
-            js_copy = "var t = arguments[0]; var a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); document.execCommand('copy'); document.body.removeChild(a);"
-            driver.execute_script(js_copy, caption_text)
-            
+            # Ketik kata pertama lalu Paste sisanya
+            ActionChains(driver).click(real_textbox).send_keys(first_word).perform()
+            human_delay(1, 2)
             ActionChains(driver).click(real_textbox).key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
-            print("[+] Caption dimasukkan.")
-            human_delay(2, 3)
+            
+            print("[+] Caption berhasil dimasukkan.")
+            human_delay(2, 4)
         except Exception as e:
-            print(f"[-] Gagal input caption: {e}")
+            print(f"[-] Gagal menulis caption: {e}")
 
-        # Input Media
+        # --- INPUT MEDIA (Versi Original) ---
+        print("[*] Memasukkan media ke dalam postingan...")
         try:
-            # Gunakan XPath yang valid untuk mencari input file
             file_input_xpath = "//input[@type='file' and contains(@accept, 'image')] | //input[@type='file' and contains(@accept, 'video')] | //input[@type='file']"
-            file_inputs = driver.find_elements(By.XPATH, file_input_xpath)
+            file_inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, file_input_xpath)))
+            
             if file_inputs:
-                file_inputs[-1].send_keys(video_file)
-                print("[+] Media disuntikkan.")
+                print(f"    [+] Ditemukan {len(file_inputs)} jalur input. Mencoba menyuntikkan...")
+                # Mencoba input terakhir (biasanya yang paling aktif di React)
+                for i, file_input in enumerate(reversed(file_inputs)):
+                    try:
+                        file_input.send_keys(video_file)
+                        print("    [+] Media berhasil disuntikkan!")
+                        break 
+                    except Exception:
+                        if i == len(file_inputs) - 1: print("    [!] Semua jalur input gagal.")
             else:
-                print("[!] Input file tidak ditemukan!")
+                print("    [!] Jalur input media tidak ditemukan!")
         except Exception as e:
-            print(f"[-] Gagal suntik media: {e}")
+            print(f"[-] Gagal dalam proses penambahan media: {e}")
 
         # Tunggu Upload & Klik Submit
         human_delay(10, 15)
