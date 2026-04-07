@@ -9,6 +9,8 @@ IS_TERMUX = "com.termux" in os.environ.get("PREFIX", "")
 if IS_TERMUX:
     CHROME_PATH = "/data/data/com.termux/files/usr/bin/chromium-browser"
     CHROMEDRIVER_PATH = "/data/data/com.termux/files/usr/bin/chromedriver"
+    # Gunakan DISPLAY :1 (Standar VNC Server)
+    os.environ["DISPLAY"] = ":1"
 else:
     CHROME_PATH = None
     CHROMEDRIVER_PATH = None

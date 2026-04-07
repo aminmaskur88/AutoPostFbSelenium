@@ -58,27 +58,33 @@ pip install selenium
 
 ---
 
-## 🎨 Panduan Grafis (VNC/X11) di Termux
+## 🎨 Panduan Grafis (VNC Server) di Termux
 
-Karena Selenium membutuhkan tampilan browser, Anda harus menjalankan server grafis di Termux:
+Karena Selenium membutuhkan tampilan browser untuk proses tertentu (seperti login), Anda harus menggunakan VNC Server:
 
 ### 🛠️ Persiapan Awal (Sekali Saja)
-1.  **Instal Aplikasi Android:** Unduh dan instal APK [Termux-X11](https://github.com/termux/termux-x11/releases) di HP Anda.
-2.  **Konfigurasi Termux:** Jalankan perintah instalasi di bagian atas (Langkah 1).
+1.  **Instal Dependencies:**
+    ```bash
+    pkg update && pkg upgrade
+    pkg install x11-repo
+    pkg install chromium chromedriver tigervnc fluxbox
+    ```
+2.  **Instal Aplikasi Android:** Unduh dan instal **VNC Viewer** (oleh RealVNC) dari Play Store.
 
 ### 🚀 Alur Kerja Sehari-hari (Workflow)
 Ikuti urutan ini setiap kali ingin menjalankan skrip:
 
-1.  **Buka Server X11:** Di Termux, jalankan perintah:
+1.  **Nyalakan VNC Server:**
     ```bash
-    termux-x11 :1 &
+    vncserver -localhost :1 -geometry 1280x720
     ```
-2.  **Buka Aplikasi Termux-X11:** Keluar ke home HP, buka aplikasi **Termux-X11** (layar akan hitam, biarkan saja).
-3.  **Jalankan Skrip:** Kembali ke Termux, jalankan skrip Anda:
+    *(Jika baru pertama kali, Anda akan diminta membuat password VNC, bebas minimal 6 karakter).*
+2.  **Hubungkan VNC Viewer:** Buka aplikasi VNC Viewer di HP, tambahkan koneksi baru ke alamat `127.0.0.1:5901`.
+3.  **Jalankan Skrip:** Kembali ke Termux, jalankan:
     ```bash
     python fb_uploader.py
     ```
-4.  **Lihat Browser:** Pindah kembali ke aplikasi **Termux-X11**. Browser Chromium akan muncul di sana dan Anda bisa berinteraksi menggunakan layar sentuh.
+4.  **Lihat Browser:** Pindah ke aplikasi VNC Viewer. Browser Chromium akan muncul di sana (dalam lingkungan desktop Fluxbox).
 
 ---
 
