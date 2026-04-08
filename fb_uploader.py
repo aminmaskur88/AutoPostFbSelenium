@@ -171,10 +171,11 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         
         # --- MENGKLIK TOMBOL BERIKUTNYA / SELESAI (JIKA ADA) ---
         print("[*] Mengecek apakah ada tombol 'Berikutnya' / 'Selesai'...")
+        # Exclude 'Audience' to prevent accidental clicks on privacy settings
         next_btn_xpath = (
-            "//div[@role='dialog']//div[@aria-label='Berikutnya']"
-            "| //div[@role='dialog']//div[@aria-label='Next']"
-            "| //div[@role='dialog']//div[@aria-label='Selesai']"
+            "//div[@role='dialog']//div[@aria-label='Berikutnya'][not(contains(@aria-label, 'Pemirsa'))][not(contains(@aria-label, 'Audience'))]"
+            "| //div[@role='dialog']//div[@aria-label='Next'][not(contains(@aria-label, 'Audience'))]"
+            "| //div[@role='dialog']//div[@aria-label='Selesai'][not(contains(@aria-label, 'Pemirsa'))][not(contains(@aria-label, 'Audience'))]"
             "| //div[@role='dialog']//div[@aria-label='Done']"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Berikutnya']"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Next']"
@@ -190,6 +191,7 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
             try:
                 human_delay(3, 5) # Berikan waktu agar React merender dialog baru
                 buttons = driver.find_elements(By.XPATH, next_btn_xpath)
+                # Ambil yang terlihat dan biasanya tombol utama ada di bagian bawah/akhir list
                 visible_buttons = [btn for btn in buttons if btn.is_displayed()]
                 
                 if visible_buttons:
@@ -203,21 +205,21 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         # --- MENGKLIK TOMBOL POST / KIRIM (FINAL) ---
         human_delay(3, 5) # Tunggu sebentar sebelum klik final Kirim
         print("[*] Mencari tombol final 'Kirim' atau 'Posting'...")
-        # Prioritaskan 'Kirim' atau 'Posting'.
+        # Prioritaskan 'Kirim' atau 'Posting'. Exclude 'Audience' related buttons.
         post_submit_xpath = (
-            "//div[@role='dialog']//div[@aria-label='Kirim']"
-            "| //div[@role='dialog']//div[@aria-label='Posting']"
-            "| //div[@role='dialog']//div[@aria-label='Post']"
-            "| //div[@role='dialog']//div[@aria-label[contains(., 'Kirim')]]"
-            "| //div[@role='dialog']//div[@aria-label[contains(., 'Posting')]]"
-            "| //div[@role='dialog']//div[@aria-label[contains(., 'Post')]]"
+            "//div[@role='dialog']//div[@aria-label='Kirim'][not(contains(@aria-label, 'Pemirsa'))]"
+            "| //div[@role='dialog']//div[@aria-label='Posting'][not(contains(@aria-label, 'Pemirsa'))]"
+            "| //div[@role='dialog']//div[@aria-label='Post'][not(contains(@aria-label, 'Audience'))]"
+            "| //div[@role='dialog']//div[@aria-label[contains(., 'Kirim')]][not(contains(@aria-label, 'Pemirsa'))]"
+            "| //div[@role='dialog']//div[@aria-label[contains(., 'Posting')]][not(contains(@aria-label, 'Pemirsa'))]"
+            "| //div[@role='dialog']//div[@aria-label[contains(., 'Post')]][not(contains(@aria-label, 'Audience'))]"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Kirim']"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Posting']"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Post']"
             "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Kirim')]"
             "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Posting')]"
             "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Post')]"
-            "| //div[@role='dialog']//div[@aria-label='Selesai']"
+            "| //div[@role='dialog']//div[@aria-label='Selesai'][not(contains(@aria-label, 'Pemirsa'))]"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Selesai']"
             "| //div[@aria-label='Kirim']"
             "| //div[@aria-label='Posting']"
