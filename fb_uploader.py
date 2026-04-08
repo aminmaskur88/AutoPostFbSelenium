@@ -169,18 +169,45 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         # Tunggu Upload & Klik Submit
         human_delay(10, 15)
         
-        # Klik 'Berikutnya' jika ada (biasanya 1-2 kali)
-        next_btn_xpath = "//div[@aria-label='Berikutnya' or @aria-label='Next']"
-        for _ in range(2):
-            btns = [b for b in driver.find_elements(By.XPATH, next_btn_xpath) if b.is_displayed()]
-            if btns:
-                driver.execute_script("arguments[0].click();", btns[-1])
-                human_delay(2, 3)
+        # --- MENGKLIK TOMBOL BERIKUTNYA (JIKA ADA) ---
+        print("[*] Mengecek apakah ada tombol 'Berikutnya' / 'Next'...")
+        next_btn_xpath = (
+            "//div[@role='dialog']//div[@aria-label='Berikutnya']"
+            "| //div[@role='dialog']//div[@aria-label='Next']"
+            "| //div[@role='dialog']//div[@role='button']//span[text()='Berikutnya']"
+            "| //div[@role='dialog']//div[@role='button']//span[text()='Next']"
+            "| //div[@aria-label='Berikutnya']"
+            "| //div[@aria-label='Next']"
+        )
+        
+        # Loop untuk menangani tombol 'Berikutnya' yang muncul berkali-kali (misal: optimasi video, subtitle, dll)
+        for i in range(3): 
+            try:
+                human_delay(2, 4) # Berikan waktu agar React merender dialog baru
+                buttons = driver.find_elements(By.XPATH, next_btn_xpath)
+                visible_buttons = [btn for btn in buttons if btn.is_displayed()]
+                
+                if visible_buttons:
+                    print(f"    [*] Mengklik tombol Berikutnya (Tahap {i+1})...")
+                    driver.execute_script("arguments[0].click();", visible_buttons[-1])
+                else:
+                    break
+            except Exception:
+                break
 
-        # Klik 'Kirim' / 'Post'
-        post_submit_xpath = "//div[@aria-label='Kirim' or @aria-label='Post']"
+        # --- MENGKLIK TOMBOL POST ---
+        print("[*] Mencari tombol 'Kirim' atau 'Post'...")
+        post_submit_xpath = (
+            "//div[@role='dialog']//div[@aria-label='Kirim']"
+            "| //div[@role='dialog']//div[@aria-label='Post']"
+            "| //div[@role='dialog']//div[@role='button']//span[text()='Kirim']"
+            "| //div[@role='dialog']//div[@role='button']//span[text()='Post']"
+            "| //div[@aria-label='Kirim']"
+            "| //div[@aria-label='Post']"
+        )
         try:
             submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, post_submit_xpath)))
+            print("[*] Mengklik tombol Kirim (Post)...")
             driver.execute_script("arguments[0].click();", submit_btn)
             wait.until(EC.invisibility_of_element_located((By.XPATH, "//div[@role='dialog']")))
             print("[+] Berhasil diposting!")
