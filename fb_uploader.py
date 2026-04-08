@@ -230,6 +230,24 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
             print("[*] Mengklik tombol Kirim...")
             driver.execute_script("arguments[0].click();", submit_btn)
             
+            # --- CEK JIKA MALAH MASUK KE DIALOG PEMIRSA/AUDIENCE ---
+            human_delay(2, 3)
+            # XPath untuk tombol Kembali di dialog pemirsa
+            back_btn_xpath = (
+                "//div[@role='dialog']//div[@aria-label='Kembali']"
+                "| //div[@role='dialog']//div[@aria-label='Back']"
+                "| //div[@role='dialog']//div[@role='button']//i[contains(@class, 'back')]"
+            )
+            back_btns = [b for b in driver.find_elements(By.XPATH, back_btn_xpath) if b.is_displayed()]
+            if back_btns:
+                print("[!] Terdeteksi masuk ke dialog pemirsa, mengklik 'Kembali'...")
+                driver.execute_script("arguments[0].click();", back_btns[0])
+                human_delay(2, 3)
+                # Coba klik Kirim lagi
+                print("[*] Mencoba klik Kirim ulang...")
+                submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, post_submit_xpath)))
+                driver.execute_script("arguments[0].click();", submit_btn)
+
             # Tunggu dialog hilang (konfirmasi utama)
             print("[*] Menunggu konfirmasi dari Facebook...")
             wait.until(EC.invisibility_of_element_located((By.XPATH, "//div[@role='dialog']")))
