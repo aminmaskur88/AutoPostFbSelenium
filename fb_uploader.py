@@ -189,60 +189,55 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         # --- MENGKLIK TOMBOL POST / KIRIM (FINAL) ---
         human_delay(3, 5) # Tunggu sebentar sebelum klik final Kirim
         print("[*] Mencari tombol final 'Kirim' atau 'Posting'...")
-        # Prioritaskan 'Kirim' atau 'Posting'. Exclude elements that definitely look like privacy selectors.
-        # Biasanya tombol Kirim asli tidak punya aria-haspopup='true'
+        
+        # XPath yang sangat spesifik untuk menghindari tombol Pemirsa/Privacy
+        # Kita mengecualikan teks yang sering muncul di tombol privasi
+        excluded_texts = "['Pemirsa', 'Publik', 'Teman', 'Hanya saya', 'Audience', 'Public', 'Friends', 'Only me']"
         post_submit_xpath = (
-            "//div[@role='dialog']//div[@aria-label='Kirim'][not(@aria-haspopup)][not(contains(@aria-label, 'Pemirsa'))]"
-            "| //div[@role='dialog']//div[@aria-label='Posting'][not(@aria-haspopup)][not(contains(@aria-label, 'Pemirsa'))]"
-            "| //div[@role='dialog']//div[@aria-label='Post'][not(@aria-haspopup)][not(contains(@aria-label, 'Audience'))]"
-            "| //div[@role='dialog']//div[@role='button']//span[text()='Kirim'][not(ancestor::div[@aria-haspopup])]"
-            "| //div[@role='dialog']//div[@role='button']//span[text()='Posting'][not(ancestor::div[@aria-haspopup])]"
-            "| //div[@role='dialog']//div[@role='button']//span[text()='Post'][not(ancestor::div[@aria-haspopup])]"
-            "| //div[@role='dialog']//div[@aria-label[contains(., 'Kirim')]][not(@aria-haspopup)][not(contains(@aria-label, 'Pemirsa'))]"
-            "| //div[@role='dialog']//div[@aria-label[contains(., 'Posting')]][not(@aria-haspopup)][not(contains(@aria-label, 'Pemirsa'))]"
-            "| //div[@role='dialog']//div[@aria-label[contains(., 'Post')]][not(@aria-haspopup)][not(contains(@aria-label, 'Audience'))]"
-            "| //div[@role='dialog']//div[@aria-label='Selesai'][not(@aria-haspopup)][not(contains(@aria-label, 'Pemirsa'))]"
-            "| //div[@aria-label='Kirim'][not(@aria-haspopup)]"
-            "| //div[@aria-label='Posting'][not(@aria-haspopup)]"
+            f"//div[@role='dialog']//div[@role='button'][not(@aria-haspopup)]"
+            f"[not(contains(@aria-label, 'Pemirsa'))][not(contains(@aria-label, 'Audience'))]"
+            f"[.//span[contains(text(), 'Kirim') or contains(text(), 'Posting') or contains(text(), 'Post') or contains(text(), 'Selesai')]]"
+            f"| //div[@role='dialog']//div[@aria-label='Kirim' or @aria-label='Posting' or @aria-label='Post'][not(@aria-haspopup)]"
         )
+        
         try:
-            # Cari semua yang cocok dan pilih yang paling bawah (biasanya tombol utama)
-            submit_btns = driver.find_elements(By.XPATH, post_submit_xpath)
-            visible_btns = [b for b in submit_btns if b.is_displayed()]
+            # Ambil semua kandidat
+            candidates = driver.find_elements(By.XPATH, post_submit_xpath)
+            visible_btns = [b for b in candidates if b.is_displayed()]
             
             if not visible_btns:
-                # Fallback ke xpath lama jika tidak ketemu yang tanpa aria-haspopup
-                submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, post_submit_xpath.replace("[not(@aria-haspopup)]", ""))))
+                # Fallback jika pencarian super ketat gagal
+                fallback_xpath = "//div[@role='dialog']//div[@role='button']//span[text()='Kirim' or text()='Posting' or text()='Selesai']"
+                submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, fallback_xpath)))
             else:
+                # Tombol Kirim/Posting biasanya adalah tombol terakhir (paling bawah) di dialog
                 submit_btn = visible_btns[-1]
 
-            print("[*] Mengklik tombol Kirim...")
+            # Verifikasi teks tombol sebelum klik (Log saja)
+            btn_text = submit_btn.text.replace("\n", " ")
+            print(f"[*] Mencoba mengklik tombol: {btn_text}")
+            
             driver.execute_script("arguments[0].click();", submit_btn)
             
-            # --- CEK JIKA MALAH MASUK KE DIALOG PEMIRSA/AUDIENCE ---
-            human_delay(3, 5)
-            # XPath untuk tombol Kembali di dialog pemirsa
-            back_btn_xpath = (
-                "//div[@role='dialog']//div[@aria-label='Kembali']"
-                "| //div[@role='dialog']//div[@aria-label='Back']"
-                "| //div[@role='dialog']//div[@role='button']//i[contains(@class, 'back')]"
-            )
-            back_btns = [b for b in driver.find_elements(By.XPATH, back_btn_xpath) if b.is_displayed()]
-            if back_btns:
-                print("[!] Terdeteksi masuk ke dialog pemirsa, mengklik 'Kembali'...")
-                driver.execute_script("arguments[0].click();", back_btns[0])
-                human_delay(2, 3)
-                
-                # Coba cari tombol Kirim yang lebih spesifik agar tidak salah klik lagi
-                print("[*] Mencari ulang tombol Kirim yang benar...")
-                # Tombol kirim asli biasanya biru dan punya role button di level tertentu
-                final_retry_xpath = "//div[@role='dialog']//div[@role='button']//span[text()='Kirim' or text()='Posting']"
+            # --- CEK JIKA TERJEBAK DI DIALOG PEMIRSA ---
+            human_delay(3, 4)
+            page_source = driver.page_source.lower()
+            if "pilih pemirsa" in page_source or "select audience" in page_source or "siapa yang bisa melihat" in page_source:
+                print("[!] Ups, sepertinya salah masuk ke menu Pemirsa. Mencari tombol Kembali...")
+                back_btn_xpath = "//div[@role='dialog']//div[@aria-label='Kembali' or @aria-label='Back' or @role='button'][descendant::i or contains(., 'Kembali')]"
                 try:
-                    retry_btn = wait.until(EC.element_to_be_clickable((By.XPATH, final_retry_xpath)))
+                    back_btn = wait.until(EC.element_to_be_clickable((By.XPATH, back_btn_xpath)))
+                    driver.execute_script("arguments[0].click();", back_btn)
+                    human_delay(2, 3)
+                    
+                    # RETRY: Cari tombol yang BENAR-BENAR berisi teks Kirim/Posting saja tanpa embel-embel
+                    print("[*] Mencoba mencari tombol Kirim yang asli (biasanya berwarna Biru)...")
+                    # Tombol Kirim utama seringkali memiliki background-color biru atau role tertentu
+                    retry_xpath = "//div[@role='dialog']//div[@role='button']//span[text()='Kirim' or text()='Posting']"
+                    retry_btn = wait.until(EC.element_to_be_clickable((By.XPATH, retry_xpath)))
                     driver.execute_script("arguments[0].click();", retry_btn)
-                except:
-                    # Jika tidak ketemu span, coba klik lagi yang tadi tapi hindari yang sama
-                    driver.execute_script("arguments[0].click();", submit_btn) 
+                except Exception as ex:
+                    print(f"[-] Gagal kembali dari dialog pemirsa: {ex}")
 
             # Tunggu dialog hilang (konfirmasi utama)
             print("[*] Menunggu konfirmasi dari Facebook...")
