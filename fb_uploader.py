@@ -214,10 +214,26 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
             submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, post_submit_xpath)))
             print("[*] Mengklik tombol Kirim...")
             driver.execute_script("arguments[0].click();", submit_btn)
+            
+            # Tunggu dialog hilang (konfirmasi utama)
+            print("[*] Menunggu konfirmasi dari Facebook...")
             wait.until(EC.invisibility_of_element_located((By.XPATH, "//div[@role='dialog']")))
-            print("[+] Berhasil diposting!")
-            with open(uploaded_marker, "w") as f:
-                f.write(f"Selesai: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Cek tambahan: Pastikan tidak ada pesan error yang tertinggal
+            human_delay(3, 5)
+            error_keywords = ["Gagal", "Error", "Maaf", "Something went wrong", "Could not"]
+            page_text = driver.find_element(By.TAG_NAME, "body").text
+            
+            is_error = any(kw in page_text for kw in error_keywords) if "dialog" in page_text.lower() else False
+            
+            if not is_error:
+                print("[+] Konfirmasi: Postingan berhasil terkirim!")
+                with open(uploaded_marker, "w") as f:
+                    f.write(f"Selesai: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                print("[!] Peringatan: Dialog hilang tapi sepertinya ada pesan error atau kendala.")
+        except Exception as e:
+            print(f"[-] Gagal konfirmasi postingan: {e}")
         except Exception as e:
             print(f"[-] Gagal kirim postingan: {e}")
 
