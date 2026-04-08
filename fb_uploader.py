@@ -169,15 +169,20 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         # Tunggu Upload & Klik Submit
         human_delay(10, 15)
         
-        # --- MENGKLIK TOMBOL BERIKUTNYA (JIKA ADA) ---
-        print("[*] Mengecek apakah ada tombol 'Berikutnya' / 'Next'...")
+        # --- MENGKLIK TOMBOL BERIKUTNYA / SELESAI (JIKA ADA) ---
+        print("[*] Mengecek apakah ada tombol 'Berikutnya' / 'Selesai'...")
         next_btn_xpath = (
             "//div[@role='dialog']//div[@aria-label='Berikutnya']"
             "| //div[@role='dialog']//div[@aria-label='Next']"
+            "| //div[@role='dialog']//div[@aria-label='Selesai']"
+            "| //div[@role='dialog']//div[@aria-label='Done']"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Berikutnya']"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Next']"
+            "| //div[@role='dialog']//div[@role='button']//span[text()='Selesai']"
+            "| //div[@role='dialog']//div[@role='button']//span[text()='Done']"
             "| //div[@aria-label='Berikutnya']"
             "| //div[@aria-label='Next']"
+            "| //div[@aria-label='Selesai']"
         )
         
         # Loop untuk menangani tombol 'Berikutnya' yang muncul berkali-kali (misal: optimasi video, subtitle, dll)
@@ -188,27 +193,32 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
                 visible_buttons = [btn for btn in buttons if btn.is_displayed()]
                 
                 if visible_buttons:
-                    print(f"    [*] Mengklik tombol Berikutnya (Tahap {i+1})...")
+                    print(f"    [*] Mengklik tombol Berikutnya/Selesai (Tahap {i+1})...")
                     driver.execute_script("arguments[0].click();", visible_buttons[-1])
                 else:
                     break
             except Exception:
                 break
 
-        # --- MENGKLIK TOMBOL POST ---
+        # --- MENGKLIK TOMBOL POST / KIRIM ---
         human_delay(3, 5) # Tunggu sebentar sebelum klik final Kirim
-        print("[*] Mencari tombol 'Kirim'...")
+        print("[*] Mencari tombol 'Kirim' atau 'Selesai' (Final)...")
         post_submit_xpath = (
             "//div[@role='dialog']//div[@aria-label='Kirim']"
             "| //div[@role='dialog']//div[@aria-label='Post']"
+            "| //div[@role='dialog']//div[@aria-label='Selesai']"
             "| //div[@role='dialog']//div[@aria-label[contains(., 'Kirim')]]"
             "| //div[@role='dialog']//div[@aria-label[contains(., 'Post')]]"
+            "| //div[@role='dialog']//div[@aria-label[contains(., 'Selesai')]]"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Kirim']"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Post']"
+            "| //div[@role='dialog']//div[@role='button']//span[text()='Selesai']"
             "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Kirim')]"
             "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Post')]"
+            "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Selesai')]"
             "| //div[@aria-label='Kirim']"
             "| //div[@aria-label='Post']"
+            "| //div[@aria-label='Selesai']"
         )
         try:
             submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, post_submit_xpath)))
