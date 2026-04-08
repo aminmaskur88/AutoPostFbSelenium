@@ -205,33 +205,38 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         # --- MENGKLIK TOMBOL POST / KIRIM (FINAL) ---
         human_delay(3, 5) # Tunggu sebentar sebelum klik final Kirim
         print("[*] Mencari tombol final 'Kirim' atau 'Posting'...")
-        # Prioritaskan 'Kirim' atau 'Posting'. Exclude 'Audience' related buttons.
+        # Prioritaskan 'Kirim' atau 'Posting'. Exclude elements that definitely look like privacy selectors.
+        # Biasanya tombol Kirim asli tidak punya aria-haspopup='true'
         post_submit_xpath = (
-            "//div[@role='dialog']//div[@aria-label='Kirim'][not(contains(@aria-label, 'Pemirsa'))]"
-            "| //div[@role='dialog']//div[@aria-label='Posting'][not(contains(@aria-label, 'Pemirsa'))]"
-            "| //div[@role='dialog']//div[@aria-label='Post'][not(contains(@aria-label, 'Audience'))]"
-            "| //div[@role='dialog']//div[@aria-label[contains(., 'Kirim')]][not(contains(@aria-label, 'Pemirsa'))]"
-            "| //div[@role='dialog']//div[@aria-label[contains(., 'Posting')]][not(contains(@aria-label, 'Pemirsa'))]"
-            "| //div[@role='dialog']//div[@aria-label[contains(., 'Post')]][not(contains(@aria-label, 'Audience'))]"
-            "| //div[@role='dialog']//div[@role='button']//span[text()='Kirim']"
-            "| //div[@role='dialog']//div[@role='button']//span[text()='Posting']"
-            "| //div[@role='dialog']//div[@role='button']//span[text()='Post']"
-            "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Kirim')]"
-            "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Posting')]"
-            "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Post')]"
-            "| //div[@role='dialog']//div[@aria-label='Selesai'][not(contains(@aria-label, 'Pemirsa'))]"
-            "| //div[@role='dialog']//div[@role='button']//span[text()='Selesai']"
-            "| //div[@aria-label='Kirim']"
-            "| //div[@aria-label='Posting']"
-            "| //div[@aria-label='Post']"
+            "//div[@role='dialog']//div[@aria-label='Kirim'][not(@aria-haspopup)][not(contains(@aria-label, 'Pemirsa'))]"
+            "| //div[@role='dialog']//div[@aria-label='Posting'][not(@aria-haspopup)][not(contains(@aria-label, 'Pemirsa'))]"
+            "| //div[@role='dialog']//div[@aria-label='Post'][not(@aria-haspopup)][not(contains(@aria-label, 'Audience'))]"
+            "| //div[@role='dialog']//div[@role='button']//span[text()='Kirim'][not(ancestor::div[@aria-haspopup])]"
+            "| //div[@role='dialog']//div[@role='button']//span[text()='Posting'][not(ancestor::div[@aria-haspopup])]"
+            "| //div[@role='dialog']//div[@role='button']//span[text()='Post'][not(ancestor::div[@aria-haspopup])]"
+            "| //div[@role='dialog']//div[@aria-label[contains(., 'Kirim')]][not(@aria-haspopup)][not(contains(@aria-label, 'Pemirsa'))]"
+            "| //div[@role='dialog']//div[@aria-label[contains(., 'Posting')]][not(@aria-haspopup)][not(contains(@aria-label, 'Pemirsa'))]"
+            "| //div[@role='dialog']//div[@aria-label[contains(., 'Post')]][not(@aria-haspopup)][not(contains(@aria-label, 'Audience'))]"
+            "| //div[@role='dialog']//div[@aria-label='Selesai'][not(@aria-haspopup)][not(contains(@aria-label, 'Pemirsa'))]"
+            "| //div[@aria-label='Kirim'][not(@aria-haspopup)]"
+            "| //div[@aria-label='Posting'][not(@aria-haspopup)]"
         )
         try:
-            submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, post_submit_xpath)))
+            # Cari semua yang cocok dan pilih yang paling bawah (biasanya tombol utama)
+            submit_btns = driver.find_elements(By.XPATH, post_submit_xpath)
+            visible_btns = [b for b in submit_btns if b.is_displayed()]
+            
+            if not visible_btns:
+                # Fallback ke xpath lama jika tidak ketemu yang tanpa aria-haspopup
+                submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, post_submit_xpath.replace("[not(@aria-haspopup)]", ""))))
+            else:
+                submit_btn = visible_btns[-1]
+
             print("[*] Mengklik tombol Kirim...")
             driver.execute_script("arguments[0].click();", submit_btn)
             
             # --- CEK JIKA MALAH MASUK KE DIALOG PEMIRSA/AUDIENCE ---
-            human_delay(2, 3)
+            human_delay(3, 5)
             # XPath untuk tombol Kembali di dialog pemirsa
             back_btn_xpath = (
                 "//div[@role='dialog']//div[@aria-label='Kembali']"
@@ -243,10 +248,17 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
                 print("[!] Terdeteksi masuk ke dialog pemirsa, mengklik 'Kembali'...")
                 driver.execute_script("arguments[0].click();", back_btns[0])
                 human_delay(2, 3)
-                # Coba klik Kirim lagi
-                print("[*] Mencoba klik Kirim ulang...")
-                submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, post_submit_xpath)))
-                driver.execute_script("arguments[0].click();", submit_btn)
+                
+                # Coba cari tombol Kirim yang lebih spesifik agar tidak salah klik lagi
+                print("[*] Mencari ulang tombol Kirim yang benar...")
+                # Tombol kirim asli biasanya biru dan punya role button di level tertentu
+                final_retry_xpath = "//div[@role='dialog']//div[@role='button']//span[text()='Kirim' or text()='Posting']"
+                try:
+                    retry_btn = wait.until(EC.element_to_be_clickable((By.XPATH, final_retry_xpath)))
+                    driver.execute_script("arguments[0].click();", retry_btn)
+                except:
+                    # Jika tidak ketemu span, coba klik lagi yang tadi tapi hindari yang sama
+                    driver.execute_script("arguments[0].click();", submit_btn) 
 
             # Tunggu dialog hilang (konfirmasi utama)
             print("[*] Menunggu konfirmasi dari Facebook...")
