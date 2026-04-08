@@ -200,25 +200,23 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
             except Exception:
                 break
 
-        # --- MENGKLIK TOMBOL POST / KIRIM ---
+        # --- MENGKLIK TOMBOL POST / KIRIM (FINAL) ---
         human_delay(3, 5) # Tunggu sebentar sebelum klik final Kirim
-        print("[*] Mencari tombol 'Kirim' atau 'Selesai' (Final)...")
+        print("[*] Mencari tombol final 'Kirim'...")
+        # Prioritaskan 'Kirim' atau 'Post'. Gunakan 'Selesai' hanya jika 'Kirim' tidak ada.
         post_submit_xpath = (
             "//div[@role='dialog']//div[@aria-label='Kirim']"
             "| //div[@role='dialog']//div[@aria-label='Post']"
-            "| //div[@role='dialog']//div[@aria-label='Selesai']"
             "| //div[@role='dialog']//div[@aria-label[contains(., 'Kirim')]]"
             "| //div[@role='dialog']//div[@aria-label[contains(., 'Post')]]"
-            "| //div[@role='dialog']//div[@aria-label[contains(., 'Selesai')]]"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Kirim']"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Post']"
-            "| //div[@role='dialog']//div[@role='button']//span[text()='Selesai']"
             "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Kirim')]"
             "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Post')]"
-            "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Selesai')]"
+            "| //div[@role='dialog']//div[@aria-label='Selesai']"
+            "| //div[@role='dialog']//div[@role='button']//span[text()='Selesai']"
             "| //div[@aria-label='Kirim']"
             "| //div[@aria-label='Post']"
-            "| //div[@aria-label='Selesai']"
         )
         try:
             submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, post_submit_xpath)))
