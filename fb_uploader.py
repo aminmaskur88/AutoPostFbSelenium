@@ -181,9 +181,9 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         )
         
         # Loop untuk menangani tombol 'Berikutnya' yang muncul berkali-kali (misal: optimasi video, subtitle, dll)
-        for i in range(3): 
+        for i in range(4): 
             try:
-                human_delay(2, 4) # Berikan waktu agar React merender dialog baru
+                human_delay(3, 5) # Berikan waktu agar React merender dialog baru
                 buttons = driver.find_elements(By.XPATH, next_btn_xpath)
                 visible_buttons = [btn for btn in buttons if btn.is_displayed()]
                 
@@ -196,18 +196,23 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
                 break
 
         # --- MENGKLIK TOMBOL POST ---
-        print("[*] Mencari tombol 'Kirim' atau 'Post'...")
+        human_delay(3, 5) # Tunggu sebentar sebelum klik final Kirim
+        print("[*] Mencari tombol 'Kirim'...")
         post_submit_xpath = (
             "//div[@role='dialog']//div[@aria-label='Kirim']"
             "| //div[@role='dialog']//div[@aria-label='Post']"
+            "| //div[@role='dialog']//div[@aria-label[contains(., 'Kirim')]]"
+            "| //div[@role='dialog']//div[@aria-label[contains(., 'Post')]]"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Kirim']"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Post']"
+            "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Kirim')]"
+            "| //div[@role='dialog']//div[@role='button']//span[contains(text(), 'Post')]"
             "| //div[@aria-label='Kirim']"
             "| //div[@aria-label='Post']"
         )
         try:
             submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, post_submit_xpath)))
-            print("[*] Mengklik tombol Kirim (Post)...")
+            print("[*] Mengklik tombol Kirim...")
             driver.execute_script("arguments[0].click();", submit_btn)
             wait.until(EC.invisibility_of_element_located((By.XPATH, "//div[@role='dialog']")))
             print("[+] Berhasil diposting!")
