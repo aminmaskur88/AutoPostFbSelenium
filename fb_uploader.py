@@ -48,48 +48,32 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         return
 
     meta_file = os.path.join(folder_post, "post_meta.json")
+    meta = {}
     try:
-        with open(meta_file, 'r', encoding='utf-8') as f:
-            meta = json.load(f)
+        if os.path.exists(meta_file):
+            with open(meta_file, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
     except Exception as e:
         print(f"[!] Gagal membaca metadata: {e}")
+
+    # Cari file media
+    video_file = None
+    for f in os.listdir(folder_post):
+        if f.lower().endswith((".mp4", ".jpg", ".png", ".jpeg")):
+            video_file = os.path.abspath(os.path.join(folder_post, f))
+            break
+    
+    if not video_file:
+        print("[!] Media tidak ditemukan!")
         return
 
-    print(f"[*] Menyiapkan postingan: {meta.get('post_title', 'Tanpa Judul')}")
+    # Fallback Judul dari Nama File jika meta kosong
+    if not meta.get('post_title'):
+        filename_only = os.path.splitext(os.path.basename(video_file))[0]
+        # Ganti underscore atau dash dengan spasi agar lebih rapi
+        meta['post_title'] = filename_only.replace("_", " ").replace("-", " ").title()
 
-    # Bersihkan sebelum buka
-    cleanup_profile(profile_path)
-    driver = setup_driver(profile_path, headless=headless)
-    wait = WebDriverWait(driver, 30)
-
-    try:
-        print("[*] Membuka Facebook...")
-        if not headless and "com.termux" in os.environ.get("PREFIX", ""):
-            lan_ip = get_lan_ip()
-            print(f"    [!] (Opsional) Buka VNC Viewer -> {lan_ip}:5901 (PC/HP Lain) atau 127.0.0.1:5901 (Lokal)")
-        driver.get("https://www.facebook.com/")
-        human_delay(5, 8)
-
-        # Cek login
-        try:
-            wait.until(EC.presence_of_element_located((By.XPATH, "//div[@aria-label='Facebook' or @role='search']")))
-            print("[+] Berhasil masuk ke Beranda.")
-        except:
-            print("[!] Peringatan: Halaman mungkin belum login atau lambat dimuat.")
-
-        scroll_page(driver, 2)
-        scroll_to_top(driver)
-
-        # Cari file media
-        video_file = None
-        for f in os.listdir(folder_post):
-            if f.lower().endswith((".mp4", ".jpg", ".png", ".jpeg")):
-                video_file = os.path.abspath(os.path.join(folder_post, f))
-                break
-        
-        if not video_file:
-            print("[!] Media tidak ditemukan!")
-            return
+    print(f"[*] Menyiapkan postingan: {meta.get('post_title')}")
 
         # Klik "What's on your mind?"
         post_button_xpath = "//div[@role='button']//span[contains(text(), 'Apa yang Anda pikirkan')] | //div[@role='button']//span[contains(text(), \"What's on your mind\")]"
@@ -337,10 +321,15 @@ if __name__ == "__main__":
                 if not base_dir or not os.path.exists(base_dir):
                     print("[!] Atur folder dulu di menu 2."); continue
                 
-                # Filter folder yang valid
-                folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f)) 
-                          and os.path.exists(os.path.join(base_dir, f, "post_meta.json"))
-                          and not os.path.exists(os.path.join(base_dir, f, "uploadedfb.txt"))]
+                # Filter folder yang valid (punya media DAN belum diupload)
+                folders = []
+                for f in os.listdir(base_dir):
+                    f_path = os.path.join(base_dir, f)
+                    if os.path.isdir(f_path) and not os.path.exists(os.path.join(f_path, "uploadedfb.txt")):
+                        # Cek apakah ada file media di dalamnya
+                        has_media = any(file.lower().endswith((".mp4", ".jpg", ".png", ".jpeg")) for file in os.listdir(f_path))
+                        if has_media:
+                            folders.append(f)
                 
                 if not folders: print("[!] Tidak ada konten baru."); continue
                 
