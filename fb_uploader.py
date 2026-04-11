@@ -241,46 +241,18 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
             print(f"[*] Mencoba mengklik tombol: {btn_text}")
             
             driver.execute_script("arguments[0].click();", submit_btn)
+            print("[*] Tombol Kirim/Posting sudah diklik.")
             
-            # --- CEK JIKA TERJEBAK DI DIALOG PEMIRSA ---
-            human_delay(3, 4)
-            page_source = driver.page_source.lower()
-            if "pilih pemirsa" in page_source or "select audience" in page_source or "siapa yang bisa melihat" in page_source:
-                print("[!] Ups, sepertinya salah masuk ke menu Pemirsa. Mencari tombol Kembali...")
-                back_btn_xpath = "//div[@role='dialog']//div[@aria-label='Kembali' or @aria-label='Back' or @role='button'][descendant::i or contains(., 'Kembali')]"
-                try:
-                    back_btn = wait.until(EC.element_to_be_clickable((By.XPATH, back_btn_xpath)))
-                    driver.execute_script("arguments[0].click();", back_btn)
-                    human_delay(2, 3)
-                    
-                    # RETRY: Cari tombol yang BENAR-BENAR berisi teks Kirim/Posting saja tanpa embel-embel
-                    print("[*] Mencoba mencari tombol Kirim yang asli (biasanya berwarna Biru)...")
-                    # Tombol Kirim utama seringkali memiliki background-color biru atau role tertentu
-                    retry_xpath = "//div[@role='dialog']//div[@role='button']//span[text()='Kirim' or text()='Posting']"
-                    retry_btn = wait.until(EC.element_to_be_clickable((By.XPATH, retry_xpath)))
-                    driver.execute_script("arguments[0].click();", retry_btn)
-                except Exception as ex:
-                    print(f"[-] Gagal kembali dari dialog pemirsa: {ex}")
-
-            # Tunggu dialog hilang (konfirmasi utama)
-            print("[*] Menunggu konfirmasi dari Facebook...")
-            wait.until(EC.invisibility_of_element_located((By.XPATH, "//div[@role='dialog']")))
+            # Sesuai permintaan: Setelah pencet kirim, langsung anggap selesai dan close browser.
+            # Kita beri jeda 5 detik agar request pengiriman sempat terkirim ke server FB.
+            print("[*] Menunggu 5 detik untuk memastikan proses dimulai, lalu menutup browser...")
+            time.sleep(5)
             
-            # Cek tambahan: Pastikan tidak ada pesan error yang tertinggal
-            human_delay(3, 5)
-            error_keywords = ["Gagal", "Error", "Maaf", "Something went wrong", "Could not"]
-            page_text = driver.find_element(By.TAG_NAME, "body").text
+            with open(uploaded_marker, "w") as f:
+                f.write(f"Selesai: {time.strftime('%Y-%m-%d %H:%M:%S')} (Auto-closed)")
             
-            is_error = any(kw in page_text for kw in error_keywords) if "dialog" in page_text.lower() else False
-            
-            if not is_error:
-                print("[+] Konfirmasi: Postingan berhasil terkirim!")
-                with open(uploaded_marker, "w") as f:
-                    f.write(f"Selesai: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-            else:
-                print("[!] Peringatan: Dialog hilang tapi sepertinya ada pesan error atau kendala.")
-        except Exception as e:
-            print(f"[-] Gagal konfirmasi postingan: {e}")
+            print("[+] Postingan selesai dikirim (asumsi sukses).")
+            return # Keluar dari fungsi untuk memicu driver.quit() di blok finally
         except Exception as e:
             print(f"[-] Gagal kirim postingan: {e}")
 
