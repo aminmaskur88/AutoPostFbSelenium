@@ -207,9 +207,32 @@ def post_to_facebook(driver, image_paths, caption):
         
         check_text = driver.execute_script("return (arguments[0].value || arguments[0].innerText || '');", input_field)
         if len(check_text.strip()) < 10:
-            print("[!] Injeksi JS Clipboard gagal, mencoba cara paksa terakhir...")
-            input_field.send_keys(caption)
+            print("[!] Injeksi JS Clipboard gagal, mencoba memancing fokus ulang...")
+            pancingan_xpaths = [
+                "//*[contains(text(), 'Posting status baru')]",
+                "//*[contains(text(), 'Apa yang Anda pikirkan')]",
+                "//*[contains(text(), \"What's on your mind\")]"
+            ]
+            for px in pancingan_xpaths:
+                try:
+                    p_elems = driver.find_elements(By.XPATH, px)
+                    for p_el in p_elems:
+                        if p_el.is_displayed():
+                            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", p_el)
+                            time.sleep(1)
+                            driver.execute_script("arguments[0].click();", p_el)
+                            time.sleep(1.5)
+                            break
+                except: pass
+            
+            try:
+                ActionChains(driver).send_keys(caption).perform()
+            except:
+                try: input_field.send_keys(caption)
+                except: pass
             time.sleep(3)
+            
+            check_text = driver.execute_script("return (arguments[0].value || arguments[0].innerText || '');", input_field)
         
         print(f"[+] Caption selesai diproses ({len(check_text)} karakter).")
         
