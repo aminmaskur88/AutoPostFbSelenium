@@ -84,10 +84,32 @@ def main():
             
             print("\n[+] Selesai! Browser sekarang memuat sesi akun Anda.")
             print("[!] Buka VNC Viewer untuk melihat hasilnya.")
-            print("[!] Tekan CTRL+C di terminal ini jika Anda ingin menutup browser secara paksa.")
+            print("[!] Tekan CTRL+C di terminal ini untuk MENYIMPAN COOKIES dan menutup browser.")
+            print("[!] (Cookies juga akan otomatis disimpan setiap 5 detik saat browser terbuka)")
             
-            while True:
-                time.sleep(1)
+            try:
+                while True:
+                    try:
+                        # Cek apakah window masih terbuka
+                        _ = driver.window_handles
+                        # Simpan cookies terbaru
+                        new_cookies = driver.get_cookies()
+                        with open(cookie_path, 'w') as f:
+                            json.dump(new_cookies, f, indent=4)
+                    except Exception:
+                        print("\n[!] Browser ditutup secara manual.")
+                        break
+                    time.sleep(5)
+            except KeyboardInterrupt:
+                print("\n[!] Menyimpan cookies terakhir sebelum keluar...")
+                try:
+                    new_cookies = driver.get_cookies()
+                    with open(cookie_path, 'w') as f:
+                        json.dump(new_cookies, f, indent=4)
+                    print(f"[+] Cookies berhasil diperbarui di {cookie_files[choice-1]}")
+                except Exception:
+                    pass
+                raise
         else:
             print("[-] Pilihan tidak valid.")
             
