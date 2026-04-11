@@ -155,16 +155,47 @@ def post_to_facebook(driver, image_paths, caption):
         )
         
         input_field = None
-        fields = driver.find_elements(By.XPATH, textarea_xpath)
-        for f in fields:
-            if f.is_displayed():
-                input_field = f
-                break
-        
-        if not input_field:
-            input_field = wait.until(EC.visibility_of_element_located((By.XPATH, textarea_xpath)))
+        try:
+            print("[*] Mencari area input yang terlihat...")
+            fields = driver.find_elements(By.XPATH, textarea_xpath)
+            for f in fields:
+                if f.is_displayed():
+                    input_field = f
+                    break
+            
+            if not input_field:
+                print("[*] Area input tidak langsung terlihat, mencoba memancing kotak muncul...")
+                # Fallback: Klik placeholder dulu jika textarea belum ada (sering terjadi di versi mbasic/lite)
+                pancingan_awal = [
+                    "//*[contains(text(), 'Posting status baru')]",
+                    "//*[contains(text(), 'Apa yang Anda pikirkan')]",
+                    "//*[contains(text(), \"What's on your mind\")]",
+                    "//div[@aria-label[contains(., 'Apa yang Anda pikirkan')]]",
+                    "//div[@aria-label[contains(., \"What's on your mind\")]]"
+                ]
+                for pa in pancingan_awal:
+                    try:
+                        p_elems = driver.find_elements(By.XPATH, pa)
+                        for p_el in p_elems:
+                            if p_el.is_displayed():
+                                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", p_el)
+                                time.sleep(1)
+                                driver.execute_script("arguments[0].click();", p_el)
+                                print("[*] Placeholder diklik, menunggu textarea asli muncul...")
+                                time.sleep(3)
+                                break
+                    except: pass
+                
+                print("[*] Menunggu hingga 15 detik untuk textarea...")
+                # Tambahkan pencarian berdasarkan aria-label sebagai jaring pengaman ekstra
+                extended_xpath = textarea_xpath + " | //div[@aria-label[contains(., 'Apa yang Anda pikirkan') or contains(., \"What's on your mind\")]]"
+                input_field = wait.until(EC.visibility_of_element_located((By.XPATH, extended_xpath)))
+            
+            print("[+] Area input ditemukan, memulai injeksi...")
+        except Exception as e:
+            print(f"[-] Gagal menemukan area input: {e}")
+            return False
 
-        print("[+] Area input ditemukan, memulai injeksi...")
         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", input_field)
         time.sleep(1)
         input_field.click()
