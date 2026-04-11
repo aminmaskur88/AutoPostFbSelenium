@@ -262,15 +262,29 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
                 except Exception as ex:
                     print(f"[-] Gagal kembali dari dialog pemirsa: {ex}")
 
-            # Tunggu dialog hilang (konfirmasi utama)
-            print("[*] Menunggu konfirmasi dari Facebook...")
-            wait.until(EC.invisibility_of_element_located((By.XPATH, "//div[@role='dialog']")))
+            # Tunggu proses postingan
+            print("[*] Menunggu proses upload dan konfirmasi dari Facebook...")
+            human_delay(10, 15)
             
-            # Cek tambahan: Pastikan tidak ada pesan error yang tertinggal
-            human_delay(3, 5)
+            # Cek apakah ada tombol "Tutup" (X) dari dialog baru (Share ke WhatsApp dll)
+            print("[*] Mengecek apakah ada dialog tambahan (seperti Share ke WhatsApp)...")
+            close_btn_xpath = (
+                "//div[@aria-label='Tutup' or @aria-label='Close'][@role='button']"
+                "| //div[@role='dialog']//div[@aria-label='Tutup' or @aria-label='Close']"
+            )
+            try:
+                close_btns = driver.find_elements(By.XPATH, close_btn_xpath)
+                visible_close_btns = [btn for btn in close_btns if btn.is_displayed()]
+                if visible_close_btns:
+                    print("[*] Menemukan dialog tambahan, mengklik tombol 'X' (Tutup)...")
+                    driver.execute_script("arguments[0].click();", visible_close_btns[0])
+                    human_delay(2, 3)
+            except Exception:
+                pass
+            
+            # Cek tambahan: Pastikan tidak ada pesan error
             error_keywords = ["Gagal", "Error", "Maaf", "Something went wrong", "Could not"]
             page_text = driver.find_element(By.TAG_NAME, "body").text
-            
             is_error = any(kw in page_text for kw in error_keywords) if "dialog" in page_text.lower() else False
             
             if not is_error:
@@ -278,7 +292,7 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
                 with open(uploaded_marker, "w") as f:
                     f.write(f"Selesai: {time.strftime('%Y-%m-%d %H:%M:%S')}")
             else:
-                print("[!] Peringatan: Dialog hilang tapi sepertinya ada pesan error atau kendala.")
+                print("[!] Peringatan: Ada indikasi pesan error atau kendala pada halaman.")
         except Exception as e:
             print(f"[-] Gagal konfirmasi postingan: {e}")
         except Exception as e:
