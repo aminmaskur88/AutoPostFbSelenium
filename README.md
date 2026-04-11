@@ -26,6 +26,7 @@ Aplikasi ini memudahkan Anda mengunggah konten (video/gambar) dari folder terpis
 | File / Folder | Deskripsi |
 | :--- | :--- |
 | **`fb_uploader.py`** | ⚙️ **Main Engine:** Skrip utama untuk melakukan posting (Manual/Auto). |
+| **`fb_uploader_mobile.py`** | 📱 **Mobile Edition:** Skrip tangguh via `m.facebook.com` menggunakan injeksi cookies JSON (Bisa jalan Headless/Tanpa VNC). |
 | **`fb_login.py`** | 🔑 **Login Helper:** Digunakan untuk login pertama kali dan mengekstrak cookies/session. |
 | **`utils.py`** | 🛠️ **Core Utils:** Berisi konfigurasi driver, anti-bot, dan fungsi pembersih profil. |
 | **`get_xpath.py`** | 🔍 **Dev Tool:** Skrip bantuan untuk mencari XPath elemen secara interaktif. |
@@ -112,13 +113,22 @@ Buat folder konten di dalam direktori pilihan Anda. Setiap folder postingan haru
 }
 ```
 
-### 3️⃣ Menjalankan Uploader
-Jalankan skrip utama:
+### 3️⃣ Menjalankan Uploader (Desktop Version)
+Jalankan skrip utama `fb_uploader.py` untuk mode desktop:
 ```bash
 python fb_uploader.py
 ```
 *   **Menu 2:** Atur folder sumber konten untuk profil Anda (Lakukan ini sekali saja).
 *   **Menu 1:** Pilih profil, lalu pilih **Auto All** untuk mengunggah semua folder secara berurutan dengan interval.
+
+### 4️⃣ Alternatif Mobile/Headless (Lebih Ringan)
+Jika Anda tidak ingin repot menggunakan VNC atau sekadar ingin proses berjalan diam-diam (siluman) di latar belakang Termux, gunakan **`fb_uploader_mobile.py`**:
+```bash
+python fb_uploader_mobile.py
+```
+*   Letakkan file cookie `.json` dari ekstensi browser (seperti EditThisCookie) ke dalam folder `Cookies/`. Skrip akan **otomatis mendeteksi** akun Anda.
+*   Gunakan **Menu 2** untuk memasukkan path lokasi folder konten Anda.
+*   Pilih **Menu 1** untuk mulai mengunggah dengan simulasi tangguh (*brutal injection*) via tampilan mobile Facebook (`m.facebook.com`).
 
 ---
 
