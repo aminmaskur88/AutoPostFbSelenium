@@ -304,6 +304,87 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         driver.quit()
         cleanup_profile(profile_path)
 
+# --- FUNGSI PENDUKUNG LOGIKA BARU ---
+def get_pending_folders(base_dir):
+    folders_data = []
+    if not os.path.exists(base_dir):
+        return []
+        
+    for f in os.listdir(base_dir):
+        f_path = os.path.join(base_dir, f)
+        if os.path.isdir(f_path) and not os.path.exists(os.path.join(f_path, "uploadedfb.txt")):
+            # Cek jenis media dalam folder
+            media_files = [file for file in os.listdir(f_path) if file.lower().endswith((".mp4", ".jpg", ".png", ".jpeg", ".webp"))]
+            if media_files:
+                # FIFO: Ambil waktu pembuatan folder
+                ctime = os.path.getctime(f_path)
+                # Tentukan apakah ini folder video atau foto (cek jika ada file mp4)
+                is_video = any(m.lower().endswith((".mp4", ".mov", ".avi")) for m in media_files)
+                folders_data.append({
+                    'name': f,
+                    'is_video': is_video,
+                    'ctime': ctime
+                })
+    
+    if not folders_data:
+        return []
+
+    # Sort berdasarkan waktu (FIFO)
+    folders_data.sort(key=lambda x: x['ctime'])
+    
+    photos = [f for f in folders_data if not f['is_video']]
+    videos = [f for f in folders_data if f['is_video']]
+    
+    result = []
+    lp, lv = len(photos), len(videos)
+    
+    if lp == 0: return [v['name'] for v in videos]
+    if lv == 0: return [p['name'] for p in photos]
+    
+    # Logika Interleaving (Pembagian Rata)
+    if lp >= lv:
+        ratio = lp // lv
+        remainder = lp % lv
+        p_idx, v_idx = 0, 0
+        for i in range(lv):
+            for _ in range(ratio):
+                if p_idx < lp:
+                    result.append(photos[p_idx]['name'])
+                    p_idx += 1
+            if i < remainder:
+                if p_idx < lp:
+                    result.append(photos[p_idx]['name'])
+                    p_idx += 1
+            if v_idx < lv:
+                result.append(videos[v_idx]['name'])
+                v_idx += 1
+        # Sisanya jika ada
+        while p_idx < lp:
+            result.append(photos[p_idx]['name'])
+            p_idx += 1
+    else:
+        ratio = lv // lp
+        remainder = lv % lp
+        p_idx, v_idx = 0, 0
+        for i in range(lp):
+            if p_idx < lp:
+                result.append(photos[p_idx]['name'])
+                p_idx += 1
+            for _ in range(ratio):
+                if v_idx < lv:
+                    result.append(videos[v_idx]['name'])
+                    v_idx += 1
+            if i < remainder:
+                if v_idx < lv:
+                    result.append(videos[v_idx]['name'])
+                    v_idx += 1
+        # Sisanya jika ada
+        while v_idx < lv:
+            result.append(videos[v_idx]['name'])
+            v_idx += 1
+            
+    return result
+
 # --- FUNGSI MENU & CONFIG ---
 def get_profiles():
     path = os.path.join(os.getcwd(), "fb_profiles")
@@ -322,8 +403,8 @@ def save_config(config):
 if __name__ == "__main__":
     is_headless = input("Gunakan Mode Headless (n VNC)? (y/n): ").lower() == 'y'
     while True:
-        print("\n=== FB UPLOADER ===")
-        print("1. Upload Konten\n2. Atur Folder Akun\n3. Keluar")
+        print("\n=== FB UPLOADER (FIFO & Balanced Mode) ===")
+        print("1. Upload Konten (Manual/Auto Scan)\n2. Atur Folder Akun\n3. Keluar")
         
         choice = input("Pilih (1-3): ").strip()
         if choice == '3': sys.exit()
@@ -353,37 +434,44 @@ if __name__ == "__main__":
                 if not base_dir or not os.path.exists(base_dir):
                     print("[!] Atur folder dulu di menu 2."); continue
                 
-                # Filter folder yang valid (punya media DAN belum diupload)
-                folders = []
-                for f in os.listdir(base_dir):
-                    f_path = os.path.join(base_dir, f)
-                    if os.path.isdir(f_path) and not os.path.exists(os.path.join(f_path, "uploadedfb.txt")):
-                        # Cek apakah ada file media di dalamnya
-                        has_media = any(file.lower().endswith((".mp4", ".jpg", ".png", ".jpeg")) for file in os.listdir(f_path))
-                        if has_media:
-                            folders.append(f)
-                
-                if not folders: print("[!] Tidak ada konten baru."); continue
-                
-                print(f"\n--- Ditemukan {len(folders)} folder ---")
-                print("1. Manual\n2. Auto All")
+                print("\n1. Manual (Sekali Jalan)\n2. Auto All (Continuous Scan)")
                 mode = input("Pilih mode: ")
                 
                 if mode == '1':
+                    folders = get_pending_folders(base_dir)
+                    if not folders: print("[!] Tidak ada konten baru."); continue
                     for i, f in enumerate(folders): print(f"{i+1}. {f}")
                     run_fb_simulation(p, os.path.join(base_dir, folders[int(input("Nomor: "))-1]), headless=is_headless)
+                
                 elif mode == '2':
-                    interval = int(input("Interval (menit): "))
-                    for i, f in enumerate(folders):
-                        print(f"[{i+1}/{len(folders)}] Processing {f}...")
-                        run_fb_simulation(p, os.path.join(base_dir, f), headless=is_headless)
-                        if i < len(folders)-1:
-                            wait_seconds = interval * 60
-                            print(f"\n[*] Upload selesai. Menunggu {interval} menit untuk folder berikutnya...")
+                    interval = int(input("Interval Antar Post (menit): "))
+                    print(f"[*] Memulai mode Auto Scan di: {base_dir}")
+                    print("[*] Tekan Ctrl+C untuk berhenti.")
+                    
+                    while True:
+                        folders = get_pending_folders(base_dir)
+                        if not folders:
+                            print("\r[*] Tidak ada konten baru. Menunggu 1 menit untuk scan ulang...", end="")
+                            time.sleep(60)
+                            continue
+                        
+                        # Ambil folder pertama dari list yang sudah di-balance & FIFO
+                        f_name = folders[0]
+                        print(f"\n\n[+] Menemukan {len(folders)} folder pending.")
+                        print(f"[*] Memproses folder: {f_name}")
+                        
+                        run_fb_simulation(p, os.path.join(base_dir, f_name), headless=is_headless)
+                        
+                        # Jika masih ada folder sisa atau setelah selesai satu, tunggu interval
+                        wait_seconds = interval * 60
+                        print(f"\n[*] Selesai. Menunggu {interval} menit sebelum memproses berikutnya...")
+                        try:
                             for remaining in range(wait_seconds, 0, -1):
                                 mins, secs = divmod(remaining, 60)
-                                sys.stdout.write(f"\r    Sisa waktu tunggu: {mins:02d}:{secs:02d} ")
+                                sys.stdout.write(f"\r    Sisa waktu tunggu: {mins:02d}:{secs:02d} | Menunggu file baru...")
                                 sys.stdout.flush()
                                 time.sleep(1)
-                            print("\n")
+                        except KeyboardInterrupt:
+                            print("\n[!] Berhenti otomatis.")
+                            break
             except Exception as e: print(f"[!] Error: {e}")
