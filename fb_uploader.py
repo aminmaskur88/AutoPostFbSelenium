@@ -449,26 +449,52 @@ if __name__ == "__main__":
                     print("[*] Tekan Ctrl+C untuk berhenti.")
                     
                     while True:
+                        # Scan ulang setiap kali sebelum proses atau saat menunggu
+                        all_pending = []
+                        if os.path.exists(base_dir):
+                            for f in os.listdir(base_dir):
+                                f_path = os.path.join(base_dir, f)
+                                if os.path.isdir(f_path) and not os.path.exists(os.path.join(f_path, "uploadedfb.txt")):
+                                    media_files = [m for m in os.listdir(f_path) if m.lower().endswith((".mp4", ".jpg", ".png", ".jpeg", ".webp"))]
+                                    if media_files:
+                                        is_video = any(m.lower().endswith((".mp4", ".mov", ".avi")) for m in media_files)
+                                        all_pending.append({'is_video': is_video})
+
+                        n_video = len([f for f in all_pending if f['is_video']])
+                        n_photo = len([f for f in all_pending if not f['is_video']])
+
                         folders = get_pending_folders(base_dir)
                         if not folders:
-                            print("\r[*] Tidak ada konten baru. Menunggu 1 menit untuk scan ulang...", end="")
+                            print(f"\r[*] Tidak ada konten baru. [Foto: {n_photo} | Video: {n_video}] Menunggu 1 menit...", end="")
                             time.sleep(60)
                             continue
                         
-                        # Ambil folder pertama dari list yang sudah di-balance & FIFO
                         f_name = folders[0]
-                        print(f"\n\n[+] Menemukan {len(folders)} folder pending.")
+                        print(f"\n\n[+] Status Antrean: {n_photo} Foto, {n_video} Video (Total: {len(folders)})")
                         print(f"[*] Memproses folder: {f_name}")
                         
                         run_fb_simulation(p, os.path.join(base_dir, f_name), headless=is_headless)
                         
-                        # Jika masih ada folder sisa atau setelah selesai satu, tunggu interval
                         wait_seconds = interval * 60
                         print(f"\n[*] Selesai. Menunggu {interval} menit sebelum memproses berikutnya...")
                         try:
                             for remaining in range(wait_seconds, 0, -1):
+                                # Update info sisa setiap detik agar akurat jika ada file baru masuk saat menunggu
+                                if remaining % 10 == 0: # Scan ulang setiap 10 detik agar tidak berat
+                                    temp_pending = []
+                                    if os.path.exists(base_dir):
+                                        for f in os.listdir(base_dir):
+                                            f_path = os.path.join(base_dir, f)
+                                            if os.path.isdir(f_path) and not os.path.exists(os.path.join(f_path, "uploadedfb.txt")):
+                                                m_files = [m for m in os.listdir(f_path) if m.lower().endswith((".mp4", ".jpg", ".png", ".jpeg", ".webp"))]
+                                                if m_files:
+                                                    is_v = any(m.lower().endswith((".mp4", ".mov", ".avi")) for m in m_files)
+                                                    temp_pending.append({'is_video': is_v})
+                                    n_video = len([f for f in temp_pending if f['is_video']])
+                                    n_photo = len([f for f in temp_pending if not f['is_video']])
+
                                 mins, secs = divmod(remaining, 60)
-                                sys.stdout.write(f"\r    Sisa waktu tunggu: {mins:02d}:{secs:02d} | Menunggu file baru...")
+                                sys.stdout.write(f"\r    Sisa waktu: {mins:02d}:{secs:02d} | Antrean: {n_photo} Foto, {n_video} Video ")
                                 sys.stdout.flush()
                                 time.sleep(1)
                         except KeyboardInterrupt:
