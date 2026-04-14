@@ -305,85 +305,91 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         cleanup_profile(profile_path)
 
 # --- FUNGSI PENDUKUNG LOGIKA BARU ---
-def get_pending_folders(base_dir):
-    folders_data = []
+def get_next_folder(base_dir):
     if not os.path.exists(base_dir):
-        return []
+        return None
         
+    pending_photos = []
+    pending_videos = []
+    uploaded_photos_count = 0
+    uploaded_videos_count = 0
+    
+    last_was_video = None
+    last_mtime = -1
+
+    for f in os.listdir(base_dir):
+        f_path = os.path.join(base_dir, f)
+        if not os.path.isdir(f_path):
+            continue
+            
+        marker = os.path.join(f_path, "uploadedfb.txt")
+        media_files = [file for file in os.listdir(f_path) if file.lower().endswith((".mp4", ".jpg", ".png", ".jpeg", ".webp"))]
+        if not media_files:
+            continue
+            
+        is_video = any(m.lower().endswith((".mp4", ".mov", ".avi")) for m in media_files)
+        
+        if os.path.exists(marker):
+            mtime = os.path.getmtime(marker)
+            if is_video:
+                uploaded_videos_count += 1
+            else:
+                uploaded_photos_count += 1
+            
+            if mtime > last_mtime:
+                last_mtime = mtime
+                last_was_video = is_video
+        else:
+            item = {'name': f, 'ctime': os.path.getctime(f_path)}
+            if is_video:
+                pending_videos.append(item)
+            else:
+                pending_photos.append(item)
+    
+    if not pending_photos and not pending_videos:
+        return None
+
+    # FIFO Sort
+    pending_photos.sort(key=lambda x: x['ctime'])
+    pending_videos.sort(key=lambda x: x['ctime'])
+    
+    # Jika salah satu kosong, langsung ambil yang tersedia
+    if not pending_photos: return pending_videos[0]['name']
+    if not pending_videos: return pending_photos[0]['name']
+    
+    # Logika Fair Proportional Balancing
+    # Kita ingin ratio Uploaded / Total mendekati seimbang antara Foto dan Video
+    total_p = uploaded_photos_count + len(pending_photos)
+    total_v = uploaded_videos_count + len(pending_videos)
+    
+    score_p = uploaded_photos_count / total_p if total_p > 0 else 0
+    score_v = uploaded_videos_count / total_v if total_v > 0 else 0
+    
+    if score_p < score_v:
+        return pending_photos[0]['name']
+    elif score_v < score_p:
+        return pending_videos[0]['name']
+    else:
+        # Jika score sama (tie), gunakan sistem toggle agar tetap selang-seling
+        if last_was_video is True:
+            return pending_photos[0]['name']
+        else:
+            return pending_videos[0]['name']
+
+def get_queue_counts(base_dir):
+    counts = {'photo': 0, 'video': 0}
+    if not os.path.exists(base_dir):
+        return counts
     for f in os.listdir(base_dir):
         f_path = os.path.join(base_dir, f)
         if os.path.isdir(f_path) and not os.path.exists(os.path.join(f_path, "uploadedfb.txt")):
-            # Cek jenis media dalam folder
             media_files = [file for file in os.listdir(f_path) if file.lower().endswith((".mp4", ".jpg", ".png", ".jpeg", ".webp"))]
             if media_files:
-                # FIFO: Ambil waktu pembuatan folder
-                ctime = os.path.getctime(f_path)
-                # Tentukan apakah ini folder video atau foto (cek jika ada file mp4)
-                is_video = any(m.lower().endswith((".mp4", ".mov", ".avi")) for m in media_files)
-                folders_data.append({
-                    'name': f,
-                    'is_video': is_video,
-                    'ctime': ctime
-                })
-    
-    if not folders_data:
-        return []
-
-    # Sort berdasarkan waktu (FIFO)
-    folders_data.sort(key=lambda x: x['ctime'])
-    
-    photos = [f for f in folders_data if not f['is_video']]
-    videos = [f for f in folders_data if f['is_video']]
-    
-    result = []
-    lp, lv = len(photos), len(videos)
-    
-    if lp == 0: return [v['name'] for v in videos]
-    if lv == 0: return [p['name'] for p in photos]
-    
-    # Logika Interleaving (Pembagian Rata)
-    if lp >= lv:
-        ratio = lp // lv
-        remainder = lp % lv
-        p_idx, v_idx = 0, 0
-        for i in range(lv):
-            for _ in range(ratio):
-                if p_idx < lp:
-                    result.append(photos[p_idx]['name'])
-                    p_idx += 1
-            if i < remainder:
-                if p_idx < lp:
-                    result.append(photos[p_idx]['name'])
-                    p_idx += 1
-            if v_idx < lv:
-                result.append(videos[v_idx]['name'])
-                v_idx += 1
-        # Sisanya jika ada
-        while p_idx < lp:
-            result.append(photos[p_idx]['name'])
-            p_idx += 1
-    else:
-        ratio = lv // lp
-        remainder = lv % lp
-        p_idx, v_idx = 0, 0
-        for i in range(lp):
-            if p_idx < lp:
-                result.append(photos[p_idx]['name'])
-                p_idx += 1
-            for _ in range(ratio):
-                if v_idx < lv:
-                    result.append(videos[v_idx]['name'])
-                    v_idx += 1
-            if i < remainder:
-                if v_idx < lv:
-                    result.append(videos[v_idx]['name'])
-                    v_idx += 1
-        # Sisanya jika ada
-        while v_idx < lv:
-            result.append(videos[v_idx]['name'])
-            v_idx += 1
-            
-    return result
+                if any(m.lower().endswith((".mp4", ".mov", ".avi")) for m in media_files):
+                    counts['video'] += 1
+                else:
+                    counts['photo'] += 1
+    return counts
 
 # --- FUNGSI MENU & CONFIG ---
 def get_profiles():
@@ -438,10 +444,12 @@ if __name__ == "__main__":
                 mode = input("Pilih mode: ")
                 
                 if mode == '1':
-                    folders = get_pending_folders(base_dir)
-                    if not folders: print("[!] Tidak ada konten baru."); continue
-                    for i, f in enumerate(folders): print(f"{i+1}. {f}")
-                    run_fb_simulation(p, os.path.join(base_dir, folders[int(input("Nomor: "))-1]), headless=is_headless)
+                    f_name = get_next_folder(base_dir)
+                    if not f_name: 
+                        print("[!] Tidak ada konten baru.")
+                        continue
+                    print(f"[*] Folder Berikutnya (FIFO & Selang-Seling): {f_name}")
+                    run_fb_simulation(p, os.path.join(base_dir, f_name), headless=is_headless)
                 
                 elif mode == '2':
                     interval = int(input("Interval Antar Post (menit): "))
@@ -449,28 +457,15 @@ if __name__ == "__main__":
                     print("[*] Tekan Ctrl+C untuk berhenti.")
                     
                     while True:
-                        # Scan ulang setiap kali sebelum proses atau saat menunggu
-                        all_pending = []
-                        if os.path.exists(base_dir):
-                            for f in os.listdir(base_dir):
-                                f_path = os.path.join(base_dir, f)
-                                if os.path.isdir(f_path) and not os.path.exists(os.path.join(f_path, "uploadedfb.txt")):
-                                    media_files = [m for m in os.listdir(f_path) if m.lower().endswith((".mp4", ".jpg", ".png", ".jpeg", ".webp"))]
-                                    if media_files:
-                                        is_video = any(m.lower().endswith((".mp4", ".mov", ".avi")) for m in media_files)
-                                        all_pending.append({'is_video': is_video})
+                        counts = get_queue_counts(base_dir)
+                        f_name = get_next_folder(base_dir)
 
-                        n_video = len([f for f in all_pending if f['is_video']])
-                        n_photo = len([f for f in all_pending if not f['is_video']])
-
-                        folders = get_pending_folders(base_dir)
-                        if not folders:
-                            print(f"\r[*] Tidak ada konten baru. [Foto: {n_photo} | Video: {n_video}] Menunggu 1 menit...", end="")
+                        if not f_name:
+                            print(f"\r[*] Tidak ada konten baru. [Foto: {counts['photo']} | Video: {counts['video']}] Menunggu 1 menit...", end="")
                             time.sleep(60)
                             continue
                         
-                        f_name = folders[0]
-                        print(f"\n\n[+] Status Antrean: {n_photo} Foto, {n_video} Video (Total: {len(folders)})")
+                        print(f"\n\n[+] Status Antrean: {counts['photo']} Foto, {counts['video']} Video")
                         print(f"[*] Memproses folder: {f_name}")
                         
                         run_fb_simulation(p, os.path.join(base_dir, f_name), headless=is_headless)
@@ -479,22 +474,11 @@ if __name__ == "__main__":
                         print(f"\n[*] Selesai. Menunggu {interval} menit sebelum memproses berikutnya...")
                         try:
                             for remaining in range(wait_seconds, 0, -1):
-                                # Update info sisa setiap detik agar akurat jika ada file baru masuk saat menunggu
-                                if remaining % 10 == 0: # Scan ulang setiap 10 detik agar tidak berat
-                                    temp_pending = []
-                                    if os.path.exists(base_dir):
-                                        for f in os.listdir(base_dir):
-                                            f_path = os.path.join(base_dir, f)
-                                            if os.path.isdir(f_path) and not os.path.exists(os.path.join(f_path, "uploadedfb.txt")):
-                                                m_files = [m for m in os.listdir(f_path) if m.lower().endswith((".mp4", ".jpg", ".png", ".jpeg", ".webp"))]
-                                                if m_files:
-                                                    is_v = any(m.lower().endswith((".mp4", ".mov", ".avi")) for m in m_files)
-                                                    temp_pending.append({'is_video': is_v})
-                                    n_video = len([f for f in temp_pending if f['is_video']])
-                                    n_photo = len([f for f in temp_pending if not f['is_video']])
+                                if remaining % 10 == 0:
+                                    counts = get_queue_counts(base_dir)
 
                                 mins, secs = divmod(remaining, 60)
-                                sys.stdout.write(f"\r    Sisa waktu: {mins:02d}:{secs:02d} | Antrean: {n_photo} Foto, {n_video} Video ")
+                                sys.stdout.write(f"\r    Sisa waktu: {mins:02d}:{secs:02d} | Antrean: {counts['photo']} Foto, {counts['video']} Video ")
                                 sys.stdout.flush()
                                 time.sleep(1)
                         except KeyboardInterrupt:
