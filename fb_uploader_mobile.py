@@ -554,7 +554,25 @@ if __name__ == '__main__':
                 
                 # Filter folder yang valid (punya media DAN belum diupload)
                 folders = []
-                for f in sorted(os.listdir(base_dir)):
+                
+                all_folders = [f for f in os.listdir(base_dir) if f != "queue_order.json"]
+                
+                # Baca custom order jika ada
+                order_path = os.path.join(base_dir, "queue_order.json")
+                custom_order = []
+                if os.path.exists(order_path):
+                    try:
+                        with open(order_path, "r", encoding="utf-8") as f_order:
+                            custom_order = json.load(f_order)
+                    except: pass
+                
+                if custom_order:
+                    order_map = {name: i for i, name in enumerate(custom_order)}
+                    all_folders.sort(key=lambda x: (order_map.get(x, 999999), x))
+                else:
+                    all_folders.sort()
+
+                for f in all_folders:
                     f_path = os.path.join(base_dir, f)
                     if os.path.isdir(f_path) and not os.path.exists(os.path.join(f_path, "uploadedfb.txt")):
                         # Cek apakah ada file media di dalamnya

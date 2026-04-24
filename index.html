@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="id" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buat Konten Pro Web</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+    <style>
+        :root {
+            --bg-app: #f4f6f8; --bg-panel: #ffffff; --bg-workspace: #e1e4e8;
+            --border-color: #d1d5db; --text-main: #1f2937; --text-muted: #6b7280;
+            --accent: #2563eb; --accent-hover: #1d4ed8; --item-hover: #f3f4f6;
+            --item-active: #eef2ff; --canvas-bg: #000000;
+            --shadow-canvas: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        [data-bs-theme="dark"] {
+            --bg-app: #111111; --bg-panel: #1e1e1e; --bg-workspace: #161616;
+            --border-color: #333333; --text-main: #e5e5e5; --text-muted: #888888;
+            --accent: #3b82f6; --accent-hover: #60a5fa; --item-hover: #262626;
+            --item-active: #2a3a50; --canvas-bg: #000000;
+            --shadow-canvas: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif; background-color: var(--bg-app);
+            color: var(--text-main); height: 100vh; height: 100dvh; overflow: hidden;
+            display: grid; grid-template-rows: 52px 1fr; grid-template-columns: 320px 1fr;
+            grid-template-areas: "header header" "sidebar workspace";
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .header-area { grid-area: header; background-color: var(--bg-panel); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; z-index: 10; }
+        .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; }
+        .logo .material-icons-round { color: var(--accent); }
+        .header-actions { display: flex; align-items: center; gap: 8px; }
+        
+        .sidebar-area { grid-area: sidebar; background-color: var(--bg-panel); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; overflow-y: auto; padding-bottom: 20px; }
+        .sidebar-section { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+        .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); font-weight: 700; }
+        
+        .options-box { background-color: var(--bg-app); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+        .form-label { font-size: 12px; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block; }
+        .input-box { width: 100%; background-color: var(--bg-panel); color: var(--text-main); border: 1px solid var(--border-color); padding: 10px 12px; border-radius: 8px; font-size: 13px; outline: none; transition: all 0.2s; resize: vertical; }
+        .input-box:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--item-active); }
+        
+        .row { display: flex; flex-wrap: wrap; margin: -4px; }
+        .col { padding: 4px; flex: 0 0 50%; max-width: 50%; }
+        
+        /* Switch Styling */
+        .switch-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
+        .switch-row span { font-size: 13px; font-weight: 600; color: var(--text-main); }
+        
+        .checkbox-custom {
+            appearance: none; width: 38px; height: 20px; background: #d1d5db;
+            border-radius: 20px; position: relative; cursor: pointer; transition: all 0.3s;
+            flex-shrink: 0; margin: 0;
+        }
+        .checkbox-custom::before {
+            content: ""; position: absolute; width: 16px; height: 16px;
+            background: white; border-radius: 50%; top: 2px; left: 2px;
+            transition: all 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .checkbox-custom:checked { background: var(--accent); }
+        .checkbox-custom:checked::before { left: 20px; }
+
+        .workspace-area { grid-area: workspace; background-color: var(--bg-workspace); display: flex; flex-direction: column; position: relative; overflow: hidden; }
+        .canvas-toolbar { min-height: 48px; background-color: var(--bg-panel); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 16px; z-index: 5; }
+        
+        .canvas-wrapper { flex: 1; overflow: auto; display: flex; justify-content: center; align-items: center; padding: 20px; position: relative; }
+        
+        .btn-primary { background-color: var(--accent); color: #fff; border: none; padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; transition: background-color 0.2s; }
+        .btn-primary:hover { background-color: var(--accent-hover); }
+        .btn-outline { background: transparent; border: 1px solid var(--border-color); color: var(--text-main); padding: 8px 16px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; font-weight: 600; transition: background-color 0.2s; }
+        .btn-outline:hover { background: var(--item-hover); }
+        .btn-icon { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 8px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .btn-icon:hover { background: var(--item-hover); color: var(--text-main); }
+
+        #toastContainer { position: fixed; top: 60px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .toast { background-color: var(--bg-panel); color: var(--text-main); border-left: 4px solid var(--accent); padding: 12px 20px; border-radius: 6px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); font-size: 13px; font-weight: 600; min-width: 250px; display: flex; align-items: center; gap: 12px; transform: translateX(120%); transition: transform 0.3s; pointer-events: auto; border: 1px solid var(--border-color); }
+        .toast.show { transform: translateX(0); }
+        .toast.success { border-left-color: #10b981; }
+        .toast.error { border-left-color: #ef4444; }
+
+        #todayCount {
+            max-width: 0;
+            opacity: 0;
+            display: inline-block;
+            vertical-align: middle;
+            overflow: hidden;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            white-space: nowrap;
+            margin-left: 0;
+        }
+        #todayCount.show {
+            max-width: 60px;
+            opacity: 1;
+            margin-left: 6px;
+        }
+
+        .image-preview-container { 
+            position: relative;
+            max-width: 100%;
+            max-height: 60vh;
+            display: inline-block;
+        }
+        
+        #sourceImage {
+            max-width: 100%;
+            max-height: 60vh;
+            display: block;
+            box-shadow: var(--shadow-canvas);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+        
+        #resultPreview {
+            max-width: 100%;
+            max-height: 60vh;
+            display: none;
+            box-shadow: var(--shadow-canvas);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        #cropBox {
+            position: absolute; border: 2px solid #ef4444; cursor: move; box-sizing: border-box; z-index: 100; touch-action: none;
+            width: 50%; height: 50%; top: 25%; left: 25%;
+            display: none;
+        }
+        .resize-handle { position: absolute; width: 14px; height: 14px; background-color: #ef4444; border: 2px solid #fff; border-radius: 50%; z-index: 11; }
+        .resize-handle.top-left { top: -7px; left: -7px; cursor: nwse-resize; }
+        .resize-handle.top-right { top: -7px; right: -7px; cursor: nesw-resize; }
+        .resize-handle.bottom-left { bottom: -7px; left: -7px; cursor: nesw-resize; }
+        .resize-handle.bottom-right { bottom: -7px; right: -7px; cursor: nwse-resize; }
+
+        @media (max-width: 900px) {
+            body { grid-template-columns: 1fr; grid-template-rows: 52px auto auto; grid-template-areas: "header" "workspace" "sidebar"; overflow-y: auto; height: auto; }
+            .sidebar-area { border-right: none; border-top: 1px solid var(--border-color); max-height: none; }
+            .workspace-area { min-height: 70vh; border-bottom: 1px solid var(--border-color); }
+        }
+    </style>
+</head>
+<body>
+    <div id="toastContainer"></div>
+    <div id="loadingOverlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999; display:none; flex-direction:column; justify-content:center; align-items:center; color:white; backdrop-filter:blur(3px);">
+        <span class="material-icons-round" style="font-size:48px; animation:spin 2s linear infinite;">sync</span>
+        <h4 style="margin-top:15px; font-weight:600; font-family:sans-serif;" id="loadingText">Sedang Memproses...</h4>
+    </div>
+
+    <header class="header-area">
+        <div class="logo">
+            <div id="logoIconWrapper" title="Aplikasi Buat Konten Pro" style="background: transparent; color: var(--accent); padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center;">
+                <span class="material-icons-round" style="font-size: 14px;">auto_awesome</span>
+            </div>
+            <div id="apiStatus" title="Status Sistem" style="background: transparent; color: var(--text-muted); font-size: 10px; padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border-color); font-weight: bold; display: flex; align-items: center; gap: 4px; transition: all 0.3s; cursor: pointer;">
+                <span class="material-icons-round" id="apiStatusIcon" style="display: inline-block; font-size: 14px; transition: transform 0.3s ease;">hourglass_empty</span>
+            </div>
+            <div id="dailyProgress" title="Selesai hari ini" style="background: transparent; color: var(--accent); font-size: 10px; padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border-color); font-weight: bold; display: flex; align-items: center; gap: 0; cursor: pointer;">
+                <span class="material-icons-round" style="font-size: 14px;">task_alt</span>
+                <span id="todayCount">{{ daily_count }}</span>
+            </div>
+            <span style="margin-left: 5px;">Buat Konten Pro Web</span>
+        </div>
+        <div class="header-actions">
+            <button class="btn-icon" id="btnTheme" title="Ganti Tema">
+                <span class="material-icons-round">light_mode</span>
+            </button>
+            <button class="btn-icon" id="btnFullscreen" title="Layar Penuh">
+                <span class="material-icons-round">fullscreen</span>
+            </button>
+        </div>
+    </header>
+
+    <aside class="sidebar-area">
+        <!-- AI Generator Section -->
+        <div class="sidebar-section">
+            <h3 class="section-title">🤖 Isi Otomatis dengan Gemini</h3>
+            <div class="options-box">
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <label class="form-label" for="aiTopic">Topik / Judul / Teks Artikel</label>
+                        <button class="btn-icon" type="button" onclick="pasteFromClipboard('aiTopic')" title="Paste" style="padding:2px;"><span class="material-icons-round" style="font-size:16px;">content_paste</span></button>
+                    </div>
+                    <textarea class="input-box" id="aiTopic" rows="3" placeholder="Masukkan topik atau teks artikel di sini..."></textarea>
+                    <div id="paste-helper" style="font-size:10px; color:#ef4444; margin-top:4px;"></div>
+                </div>
+                <button type="button" class="btn-primary" id="btnGenerateAI" onclick="generateContent()" style="background:#f59e0b; color:#fff;">
+                    <span class="material-icons-round">auto_awesome</span> Generate Ide Konten
+                </button>
+            </div>
+        </div>
+
+        <form action="/process" method="POST" enctype="multipart/form-data" id="contentForm" style="display:contents;">
+            <div class="sidebar-section">
+                <h3 class="section-title">📝 Detail Konten</h3>
+                <div class="options-box">
+                    <div>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <label class="form-label">Judul Post</label>
+                            <button class="btn-icon" type="button" onclick="copyToClipboard('post_title')" title="Salin" style="padding:2px;"><span class="material-icons-round" style="font-size:16px;">content_copy</span></button>
+                        </div>
+                        <input type="text" class="input-box" name="post_title" id="post_title" required>
+                    </div>
+                    <div class="row">
+                        <div class="col">
+                            <label class="form-label">Tone</label>
+                            <input type="text" class="input-box" name="tone" id="tone">
+                        </div>
+                        <div class="col">
+                            <label class="form-label">Bahasa</label>
+                            <input type="text" class="input-box" name="language" value="id" readonly>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="form-label">Summary</label>
+                        <textarea class="input-box" name="summary" id="summary" rows="2"></textarea>
+                    </div>
+                    <div>
+                        <label class="form-label">Hashtags</label>
+                        <input type="text" class="input-box" name="hashtags" id="hashtags">
+                    </div>
+                    <div>
+                        <label class="form-label">Call to Action</label>
+                        <input type="text" class="input-box" name="cta" id="cta">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="sidebar-section">
+                <h3 class="section-title">🖼️ Detail Slide (Image & Caption)</h3>
+                <div class="options-box">
+                    <div>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <label class="form-label" style="color: #10b981;">Prompt Gambar AI</label>
+                            <button class="btn-icon" type="button" onclick="copyToClipboard('image_prompt')" title="Salin" style="padding:2px;"><span class="material-icons-round" style="font-size:16px;">content_copy</span></button>
+                        </div>
+                        <textarea class="input-box" name="image_prompt" id="image_prompt" rows="3" placeholder="Prompt gambar akan muncul di sini..."></textarea>
+                    </div>
+                    <div>
+                        <label class="form-label">Caption (Area Hijau, 3-5 kata)</label>
+                        <input type="text" class="input-box" name="caption" id="caption" required>
+                    </div>
+                    <div>
+                        <label class="form-label">Description (Teks Putih Bawah)</label>
+                        <textarea class="input-box" name="description" id="description" rows="2" required></textarea>
+                    </div>
+                    <div class="switch-row">
+                        <span>Label [ILUSTRASI]</span>
+                        <input type="checkbox" class="checkbox-custom" name="use_ai_label" id="use_ai_label">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Hidden Fields required by backend -->
+            <div style="display:none;">
+                <textarea name="description2" id="description2"></textarea>
+                <input type="text" name="alt_text" id="alt_text">
+                <input type="file" name="image_file" id="image_file" accept="image/*" onchange="previewImage(this)">
+            </div>
+        </form>
+    </aside>
+
+    <main class="workspace-area">
+        <div class="canvas-toolbar">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <span class="material-icons-round" style="color:var(--accent);">image</span>
+                <span style="font-size: 13px; font-weight: 700; color: var(--text-main);">AREA UPLOAD & PREVIEW GAMBAR</span>
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button type="submit" form="contentForm" class="btn-primary" id="submit-btn">
+                    <span class="material-icons-round">rocket_launch</span> PROSES & SIMPAN
+                </button>
+            </div>
+        </div>
+
+        <div class="canvas-wrapper" style="flex-direction:column; gap:20px;">
+            <div style="background:var(--bg-panel); border:2px dashed var(--border-color); border-radius:12px; padding:30px; width:80%; max-width:500px; text-align:center; transition:all 0.3s;" id="upload_section">
+                <span class="material-icons-round" style="font-size:48px; color:var(--text-muted); margin-bottom:10px;">cloud_upload</span>
+                <h3 style="font-size:16px; margin-bottom:5px; color:var(--text-main);">Upload Gambar (Wajib)</h3>
+                <p style="font-size:12px; color:var(--text-muted); margin-bottom:20px;">Pilih file atau paste langsung (Ctrl+V)</p>
+                <div style="display:flex; gap:10px; justify-content:center;">
+                    <button type="button" class="btn-outline" onclick="document.getElementById('image_file').click()">
+                        <span class="material-icons-round">folder_open</span> Pilih File
+                    </button>
+                    <button type="button" class="btn-primary" onclick="pasteImageForce()" style="width:auto; background:#10b981;">
+                        <span class="material-icons-round">content_paste</span> Paste Gambar
+                    </button>
+                </div>
+            </div>
+            
+            <div id="previewContainer" style="display:none; text-align:center; width:100%;">
+                <div style="display:flex; justify-content:center; align-items:center; gap:8px; margin-bottom:12px;">
+                    <span class="material-icons-round" style="font-size:18px; color:#10b981;">check_circle</span>
+                    <h4 style="font-size:13px; color:var(--text-main); font-weight:700; margin:0;">GAMBAR SIAP DIPROSES</h4>
+                </div>
+                <div class="image-preview-container" id="imgWrapper">
+                    <img id="sourceImage" src="">
+                    <img id="resultPreview" src="">
+                    <div id="cropBox" oncontextmenu="return false;">
+                        <div class="resize-handle top-left"></div>
+                        <div class="resize-handle top-right"></div>
+                        <div class="resize-handle bottom-left"></div>
+                        <div class="resize-handle bottom-right"></div>
+                    </div>
+                </div>
+                <div style="margin-top:15px; display:flex; gap:10px; justify-content:center;">
+                    <button type="button" class="btn-outline" onclick="togglePreviewMode()" id="btnTogglePreview">
+                        <span class="material-icons-round">visibility</span> Lihat Hasil Output
+                    </button>
+                    <button type="button" class="btn-outline" onclick="document.getElementById('image_file').click()">
+                        <span class="material-icons-round">refresh</span> Ganti Gambar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // ==== EASTER EGG & API STATUS LOGIC ====
+        if (!document.getElementById('customAnimations')) { 
+            const style = document.createElement('style'); 
+            style.id = 'customAnimations'; 
+            style.innerHTML = `@keyframes spin { 100% { transform:rotate(360deg); } } @keyframes jelly { 0%, 100% { transform: scale(1, 1); } 25% { transform: scale(1.3, 0.8); } 50% { transform: scale(0.8, 1.3); } 75% { transform: scale(1.15, 0.9); } } @keyframes moveLeft { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-8px); } } @keyframes moveRight { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(8px); } }`; 
+            document.head.appendChild(style); 
+        }
+
+        const reactionEmojis = ['😀', '😂', '🙂', '😉', '😊', '😇', '🥰', '😍', '🤩', '🤔', '🤫', '😎', '🤓', '🧐', '🤯', '🥵', '😱', '🔥', '✨', '🎉', '💯', '✅', '🙏', '👍', '🙌', '🚀', '⏳', '💡'];
+        function getRandomEmoji() {
+            return reactionEmojis[Math.floor(Math.random() * reactionEmojis.length)];
+        }
+        
+        let apiProcessCount = 0;
+        let emojiTimer = null;
+        let isGravityActive = false;
+        let gravityEngine, gravityRunner, elementBodies = [], gravityClones = [];
+        let rapidClickCount = 0;
+        let rapidClickTimer = null;
+
+        function setApiLoading(isLoading) {
+            const statusBox = document.getElementById('apiStatus');
+            const statusIcon = document.getElementById('apiStatusIcon');
+            if (!statusBox || !statusIcon) return;
+
+            if (isLoading) apiProcessCount++;
+            else apiProcessCount = Math.max(0, apiProcessCount - 1);
+            
+            if (apiProcessCount > 0) {
+                if (emojiTimer) { clearTimeout(emojiTimer); emojiTimer = null; }
+                statusBox.style.color = '#10b981'; statusBox.style.borderColor = '#10b981';
+                statusIcon.className = 'material-icons-round';
+                statusIcon.innerText = 'sync'; statusIcon.style.animation = 'spin 2s linear infinite';
+            } else {
+                statusBox.style.color = 'var(--text-muted)'; statusBox.style.borderColor = 'var(--border-color)';
+                statusIcon.className = 'material-icons-round';
+                statusIcon.innerText = 'hourglass_empty'; statusIcon.style.animation = 'none';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const apiStatusBox = document.getElementById('apiStatus');
+            if (!apiStatusBox) return;
+            const statusIcon = document.getElementById('apiStatusIcon');
+
+            // Daily Progress Animation
+            let progressTimeout;
+            document.getElementById('dailyProgress').onclick = function() {
+                const count = document.getElementById('todayCount');
+                count.classList.add('show');
+                if (progressTimeout) clearTimeout(progressTimeout);
+                progressTimeout = setTimeout(() => {
+                    count.classList.remove('show');
+                }, 3000);
+            };
+            
+            function showEmojiTemporarily(e) {
+                if (isGravityActive) {
+                    deactivateGravity();
+                    return;
+                }
+                if (e && e.type === 'click') {
+                    rapidClickCount++;
+                    clearTimeout(rapidClickTimer);
+                    rapidClickTimer = setTimeout(() => { rapidClickCount = 0; }, 500);
+                    if (rapidClickCount >= 5) {
+                        activateGravity();
+                        rapidClickCount = 0;
+                        return;
+                    }
+                }
+                if (apiProcessCount === 0) {
+                    if (emojiTimer) clearTimeout(emojiTimer);
+                    statusIcon.offsetHeight; /* trigger reflow */
+                    statusIcon.style.animation = 'jelly 0.6s cubic-bezier(0.25, 1, 0.5, 1)';
+                    
+                    const btnLogo = document.getElementById('logoIconWrapper');
+                    const btnProgress = document.getElementById('dailyProgress');
+                    if (btnLogo) { 
+                        btnLogo.style.animation = 'none';
+                        btnLogo.offsetHeight;
+                        btnLogo.style.animation = 'moveLeft 0.6s cubic-bezier(0.25, 1, 0.5, 1)';
+                    }
+                    if (btnProgress) { 
+                        btnProgress.style.animation = 'none';
+                        btnProgress.offsetHeight;
+                        btnProgress.style.animation = 'moveRight 0.6s cubic-bezier(0.25, 1, 0.5, 1)';
+                    }
+                    
+                    emojiTimer = setTimeout(() => {
+                        if (apiProcessCount === 0) {
+                            statusIcon.className = 'material-icons-round';
+                            statusIcon.innerText = 'hourglass_empty';
+                            statusIcon.style.animation = 'none';
+                        }
+                        if (btnLogo) btnLogo.style.animation = 'none';
+                        if (btnProgress) btnProgress.style.animation = 'none';
+                        emojiTimer = null;
+                    }, 2000);
+                }
+            }
+            apiStatusBox.addEventListener('click', showEmojiTemporarily);
+        });
+        
+        async function activateGravity() {
+            console.log("Attempting to activate gravity...");
+            if (isGravityActive || typeof Matter === 'undefined') {
+                console.log("Gravity activation skipped. isGravityActive:", isGravityActive, "Matter defined:", typeof Matter !== 'undefined');
+                return;
+            }
+            showToast("SPACE MODE! Klik status icon lagi atau 'Esc' untuk kembali.", "info", 4000);
+            isGravityActive = true;
+            window.addEventListener('keydown', (e) => { if (e.key === 'Escape') deactivateGravity(); });
+            
+            const { Engine, Runner, Bodies, Composite, MouseConstraint, Mouse, Body } = Matter;
+            gravityEngine = Engine.create();
+            gravityRunner = Runner.create();
+            // Matikan gravitasi agar melayang
+            gravityEngine.world.gravity.y = 0;
+            gravityEngine.world.gravity.x = 0;
+            
+            document.querySelectorAll('.header-area, .sidebar-area, .workspace-area, .sidebar-section, .options-box, .canvas-toolbar').forEach(el => {
+                el.dataset.origBg = el.style.background || '';
+                el.dataset.origBorder = el.style.border || '';
+                el.style.background = 'transparent';
+                el.style.border = 'none';
+                el.style.boxShadow = 'none';
+            });
+            const targets = document.querySelectorAll('#logoIconWrapper, #apiStatus, #dailyProgress, #btnGenerateAI, #submit-btn, .header-actions > *, #upload_section > h3');
+            console.log("Found", targets.length, "elements to animate.");
+            
+            targets.forEach((el) => {
+                const rect = el.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0 || el.style.display === 'none') return;
+                el.dataset.origStyle = el.getAttribute('style') || '';
+                el.dataset.origPos = el.style.position || '';
+                const body = Bodies.rectangle(rect.left + rect.width / 2, rect.top + rect.height / 2, rect.width, rect.height, { restitution: 0.8, friction: 0, frictionAir: 0.01 });
+                body.element = el;
+                // Beri kecepatan awal acak
+                Body.setVelocity(body, { x: (Math.random() - 0.5) * 4, y: (Math.random() - 0.5) * 4 });
+                elementBodies.push(body);
+                el.style.position = 'fixed'; el.style.left = '0'; el.style.top = '0';
+                el.style.width = rect.width + 'px'; el.style.height = rect.height + 'px';
+                el.style.margin = '0'; el.style.zIndex = '9999'; el.style.transformOrigin = 'center';
+            });
+
+            // Buat dinding tak terlihat di sekeliling layar
+            const wallOptions = { isStatic: true, render: { visible: false } };
+            const ground = Bodies.rectangle(window.innerWidth / 2, window.innerHeight + 30, window.innerWidth, 60, wallOptions);
+            const leftWall = Bodies.rectangle(-30, window.innerHeight / 2, 60, window.innerHeight, wallOptions);
+            const rightWall = Bodies.rectangle(window.innerWidth + 30, window.innerHeight / 2, 60, window.innerHeight, wallOptions);
+            const ceiling = Bodies.rectangle(window.innerWidth / 2, -30, window.innerWidth, 60, wallOptions);
+            Composite.add(gravityEngine.world, [...elementBodies, ground, leftWall, rightWall, ceiling]);
+
+            const mouse = Mouse.create(document.body);
+            const mouseConstraint = MouseConstraint.create(gravityEngine, { mouse: mouse, constraint: { stiffness: 0.2, render: { visible: false } } });
+            Composite.add(gravityEngine.world, mouseConstraint);
+
+            (function update() {
+                if (!isGravityActive) return;
+                elementBodies.forEach(body => {
+                    const { x, y } = body.position;
+                    body.element.style.transform = `translate(${x - body.element.offsetWidth / 2}px, ${y - body.element.offsetHeight / 2}px) rotate(${body.angle}rad)`;
+                });
+                Engine.update(gravityEngine);
+                requestAnimationFrame(update);
+            })();
+            Runner.run(gravityRunner, gravityEngine);
+        }
+
+        function deactivateGravity() {
+            if (!isGravityActive) return;
+            isGravityActive = false;
+            Matter.Runner.stop(gravityRunner);
+            document.querySelectorAll('.header-area, .sidebar-area, .workspace-area, .sidebar-section, .options-box, .canvas-toolbar').forEach(el => {
+                el.style.background = el.dataset.origBg || '';
+                el.style.border = el.dataset.origBorder || '';
+            });
+            elementBodies.forEach(body => {
+                const el = body.element;
+                el.setAttribute('style', el.dataset.origStyle);
+                el.style.position = el.dataset.origPos;
+                el.style.transform = '';
+            });
+            elementBodies = [];
+            showToast("✅ Langsung dipulihkan!", "success");
+        }
+
+        // Fullscreen Logic
+        const btnFullscreen = document.getElementById('btnFullscreen');
+        if(btnFullscreen) {
+            btnFullscreen.addEventListener('click', () => {
+                if (!document.fullscreenElement) { 
+                    document.documentElement.requestFullscreen().catch(() => {}); 
+                } else { 
+                    document.exitFullscreen(); 
+                }
+            });
+            document.addEventListener('fullscreenchange', () => {
+                btnFullscreen.querySelector('span').innerText = document.fullscreenElement ? 'fullscreen_exit' : 'fullscreen';
+            });
+        }
+
+        // --- Consolidated Theme and Easter Egg Logic ---
+
+        // ==== THEME & PERSISTENCE LOGIC ====
+        function setTheme(theme, save = true) {
+            document.documentElement.setAttribute('data-bs-theme', theme);
+            if (save) localStorage.setItem('theme', theme);
+            const icon = document.querySelector('#btnTheme span');
+            if (icon) icon.innerText = theme === 'dark' ? 'dark_mode' : 'light_mode';
+        }
+
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) {
+            setTheme(savedTheme, false);
+        } else {
+            setTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light', false);
+        }
+
+        document.getElementById('btnTheme').addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-bs-theme');
+            setTheme(currentTheme === 'dark' ? 'light' : 'dark', true);
+        });
+
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+            if (!localStorage.getItem('theme')) {
+                setTheme(e.matches ? 'dark' : 'light', false);
+            }
+        });
+        
+        // ==== CORE UI & HELPER FUNCTIONS ====
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast ' + type;
+            toast.innerHTML = `<span class="material-icons-round">${type === 'success' ? 'check_circle' : (type === 'error' ? 'error' : 'info')}</span><span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.classList.add('show'), 10);
+            setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        function showLoading(text) {
+            if(text) document.getElementById('loadingText').innerText = text;
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        async function pasteFromClipboard(id) {
+            const helper = document.getElementById('paste-helper');
+            if(helper) helper.textContent = '';
+            try {
+                const text = await navigator.clipboard.readText();
+                const el = document.getElementById(id);
+                if (el) el.value = text;
+            } catch (err) {
+                if(helper) {
+                    helper.textContent = 'Gagal otomatis. Tekan lama lalu Tempel manual.';
+                    setTimeout(() => helper.textContent = '', 5000);
+                }
+            }
+        }
+
+        function copyToClipboard(id) {
+            var copyText = document.getElementById(id);
+            if (!copyText) return;
+            copyText.select();
+            copyText.setSelectionRange(0, 99999);
+            try { document.execCommand('copy'); showToast('Berhasil disalin!', 'success'); } 
+            catch (err) { showToast('Gagal menyalin.', 'error'); }
+        }
+
+        async function generateContent() {
+            const topic = document.getElementById('aiTopic').value;
+            if (!topic) return showToast("Mohon isi topik atau teks terlebih dahulu.", "error");
+            
+            const btn = document.getElementById('btnGenerateAI');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="material-icons-round" style="animation:spin 2s linear infinite;">sync</span> Menghubungi Gemini...';
+            setApiLoading(true);
+            
+            try {
+                const response = await fetch('/generate_plan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic: topic })
+                });
+                const data = await response.json();
+                if (data.error) {
+                    showToast("Error: " + data.error, "error");
+                } else {
+                    const title = data.post_title || '';
+                    const summary = data.summary || '';
+                    const hashtags = (data.hashtags || []).join(', ');
+
+                    document.getElementById('post_title').value = title;
+                    document.getElementById('tone').value = data.tone || '';
+                    document.getElementById('summary').value = summary;
+                    document.getElementById('hashtags').value = hashtags;
+                    document.getElementById('cta').value = data.cta || '';
+
+                    if (data.slides && data.slides.length > 0) {
+                        const slide = data.slides[0];
+                        const alt = slide.alt_text || '';
+                        document.getElementById('caption').value = slide.caption || '';
+                        document.getElementById('description').value = slide.description || '';
+                        document.getElementById('alt_text').value = alt;
+                        document.getElementById('image_prompt').value = slide.image_prompt || '';
+                        const contentBody = `${title}\n\n${summary}\n\n${alt}\n\n${hashtags}`;
+                        document.getElementById('description2').value = contentBody;
+                    }
+                    showToast('Berhasil generate ide!', 'success');
+                }
+            } catch (e) {
+                showToast("Gagal menghubungi server.", "error");
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+                setApiLoading(false);
+            }
+        }
+
+        // CROP LOGIC
+        const sourceImage = document.getElementById('sourceImage');
+        const cropBox = document.getElementById('cropBox');
+        const imgWrapper = document.getElementById('imgWrapper');
+        
+        let isDragging = false, isResizing = false, currentHandle = null;
+        let startX, startY, startW, startH, startL, startT;
+
+        const startInteraction = (e) => {
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            if (e.target.classList.contains('resize-handle')) { isResizing = true; currentHandle = e.target; }
+            else { isDragging = true; }
+            startX = clientX; startY = clientY;
+            startW = cropBox.offsetWidth; startH = cropBox.offsetHeight;
+            startL = cropBox.offsetLeft; startT = cropBox.offsetTop;
+            if(!e.touches) e.preventDefault(); e.stopPropagation();
+        };
+
+        cropBox.onmousedown = cropBox.ontouchstart = startInteraction;
+        document.onmousemove = document.ontouchmove = (e) => {
+            if (!isDragging && !isResizing) return;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            const dx = clientX - startX;
+            const dy = clientY - startY;
+            
+            const boundsW = sourceImage.offsetWidth;
+            const boundsH = sourceImage.offsetHeight;
+            
+            let newL = startL, newT = startT, newW = startW, newH = startH;
+            
+            if (isDragging) { 
+                newL = startL + dx; newT = startT + dy; 
+                // Constrain drag boundaries
+                newL = Math.max(0, Math.min(newL, boundsW - newW));
+                newT = Math.max(0, Math.min(newT, boundsH - newH));
+            }
+            else if (isResizing) {
+                // Enforce 1:1 by using dx as master for size change
+                if (currentHandle.classList.contains('bottom-right')) { 
+                    newW = startW + dx; 
+                    newH = newW;
+                }
+                else if (currentHandle.classList.contains('bottom-left')) { 
+                    newW = startW - dx; 
+                    newH = newW;
+                    newL = startL + (startW - newW);
+                }
+                else if (currentHandle.classList.contains('top-right')) { 
+                    newW = startW + dx; 
+                    newH = newW;
+                    newT = startT + (startH - newH);
+                }
+                else if (currentHandle.classList.contains('top-left')) { 
+                    newW = startW - dx; 
+                    newH = newW;
+                    newL = startL + (startW - newW);
+                    newT = startT + (startH - newH);
+                }
+
+                // Global size constraints
+                const maxSize = Math.min(boundsW - newL, boundsH - newT, newL + newW, newT + newH);
+                if (newW < 50) newW = newH = 50;
+                
+                // Final boundary check for 1:1
+                if (newL < 0) { newW = newH = newW + newL; newL = 0; }
+                if (newT < 0) { newW = newH = newH + newT; newT = 0; }
+                if (newL + newW > boundsW) { newW = newH = boundsW - newL; }
+                if (newT + newH > boundsH) { newW = newH = boundsH - newT; }
+            }
+            
+            cropBox.style.left = (newL / boundsW * 100) + '%';
+            cropBox.style.top = (newT / boundsH * 100) + '%';
+            cropBox.style.width = (newW / boundsW * 100) + '%';
+            cropBox.style.height = (newH / boundsH * 100) + '%';
+            if(e.cancelable) e.preventDefault();
+        };
+
+        document.onmouseup = document.ontouchend = () => { 
+            if (isDragging || isResizing) {
+                isDragging = isResizing = false; 
+                triggerPreviewUpdate();
+            }
+        };
+
+        // PREVIEW LOGIC
+        let isPreviewMode = false;
+        let previewTimeout;
+        
+        function togglePreviewMode() {
+            isPreviewMode = !isPreviewMode;
+            const btn = document.getElementById('btnTogglePreview');
+            
+            if(isPreviewMode) {
+                document.getElementById('sourceImage').style.display = 'none';
+                document.getElementById('cropBox').style.display = 'none';
+                document.getElementById('resultPreview').style.display = 'block';
+                btn.innerHTML = '<span class="material-icons-round">crop</span> Atur Area Crop';
+                btn.style.color = '#f59e0b'; btn.style.borderColor = '#f59e0b';
+                triggerPreviewUpdate();
+            } else {
+                document.getElementById('sourceImage').style.display = 'block';
+                document.getElementById('cropBox').style.display = 'block';
+                document.getElementById('resultPreview').style.display = 'none';
+                btn.innerHTML = '<span class="material-icons-round">visibility</span> Lihat Hasil Output';
+                btn.style.color = ''; btn.style.borderColor = '';
+            }
+        }
+        
+        function triggerPreviewUpdate() {
+            if (!isPreviewMode) return;
+            clearTimeout(previewTimeout);
+            previewTimeout = setTimeout(fetchPreview, 500);
+        }
+        
+        async function fetchPreview() {
+            const input = document.getElementById('image_file');
+            if (input.files.length === 0) return;
+            
+            const form = document.getElementById('contentForm');
+            const formData = new FormData();
+            
+            for (const pair of new FormData(form).entries()) {
+                if (pair[0] !== 'image_file') formData.append(pair[0], pair[1]);
+            }
+            formData.append('image_file', input.files[0], 'upload.png');
+            
+            // Append Crop Data
+            formData.append("x", cropBox.offsetLeft); 
+            formData.append("y", cropBox.offsetTop);
+            formData.append("w", cropBox.offsetWidth); 
+            formData.append("h", cropBox.offsetHeight);
+            formData.append("preview_w", sourceImage.offsetWidth); 
+            formData.append("preview_h", sourceImage.offsetHeight);
+            
+            // Add use_ai_label
+            formData.append("use_ai_label", document.getElementById('use_ai_label').checked);
+
+            document.getElementById('btnTogglePreview').innerHTML = '<span class="material-icons-round" style="animation:spin 2s linear infinite">sync</span> Memuat...';
+            
+            try {
+                const res = await fetch('/preview_image', { method: 'POST', body: formData });
+                if (!res.ok) throw new Error("Gagal preview");
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                document.getElementById('resultPreview').src = url;
+            } catch (err) {
+                showToast("Gagal memperbarui preview.", "error");
+            } finally {
+                if (isPreviewMode) {
+                    const btn = document.getElementById('btnTogglePreview');
+                    btn.innerHTML = '<span class="material-icons-round">crop</span> Atur Area Crop';
+                }
+            }
+        }
+
+        // Attach listeners to input fields for real-time preview
+        ['caption', 'description', 'use_ai_label'].forEach(id => {
+            document.getElementById(id).addEventListener('input', triggerPreviewUpdate);
+            document.getElementById(id).addEventListener('change', triggerPreviewUpdate);
+        });
+
+        function previewImage(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    sourceImage.src = e.target.result;
+                    sourceImage.onload = function() {
+                        const boundsW = sourceImage.offsetWidth;
+                        const boundsH = sourceImage.offsetHeight;
+                        const size = Math.min(boundsW, boundsH) * 0.8;
+                        
+                        cropBox.style.width = (size / boundsW * 100) + '%';
+                        cropBox.style.height = (size / boundsH * 100) + '%';
+                        cropBox.style.left = ((boundsW - size) / 2 / boundsW * 100) + '%';
+                        cropBox.style.top = ((boundsH - size) / 2 / boundsH * 100) + '%';
+                        
+                        document.getElementById('previewContainer').style.display = 'block';
+                        document.getElementById('upload_section').style.display = 'none';
+                        if (!isPreviewMode) cropBox.style.display = 'block';
+                        triggerPreviewUpdate();
+                    };
+                }
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        async function pasteImageForce() {
+            try {
+                const items = await navigator.clipboard.read();
+                let found = false;
+                for (const item of items) {
+                    const imageType = item.types.find(type => type.startsWith('image/'));
+                    if (!imageType) continue;
+                    const blob = await item.getType(imageType);
+                    const file = new File([blob], "clipboard.png", { type: blob.type });
+                    const dt = new DataTransfer();
+                    dt.items.add(file);
+                    
+                    const input = document.getElementById('image_file');
+                    input.files = dt.files;
+                    
+                    previewImage(input);
+                    found = true;
+                    showToast('Gambar berhasil di-paste!', 'success');
+                    break;
+                }
+                if(!found) showToast('Tidak ada gambar di clipboard.', 'error');
+            } catch (err) {
+                showToast("Clipboard tidak support di browser ini.", "error");
+            }
+        }
+
+        document.getElementById('contentForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const input = document.getElementById('image_file');
+            if (input.files.length === 0) {
+                showToast("Gambar wajib diupload atau dipaste!", "error");
+                return;
+            }
+
+            const btn = document.getElementById('submit-btn');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="material-icons-round" style="animation:spin 2s linear infinite;">sync</span> Memproses...';
+
+            const form = e.target;
+            const formData = new FormData();
+            
+            for (const pair of new FormData(form).entries()) {
+                if (pair[0] !== 'image_file') {
+                    formData.append(pair[0], pair[1]);
+                }
+            }
+
+            if (input.files.length > 0) {
+                formData.append('image_file', input.files[0], 'upload.png');
+            }
+
+            // Append Crop Data for Final Processing
+            if (cropBox) {
+                formData.append("x", cropBox.offsetLeft); 
+                formData.append("y", cropBox.offsetTop);
+                formData.append("w", cropBox.offsetWidth); 
+                formData.append("h", cropBox.offsetHeight);
+                formData.append("preview_w", sourceImage.offsetWidth); 
+                formData.append("preview_h", sourceImage.offsetHeight);
+            }
+            
+            formData.append("use_ai_label", document.getElementById('use_ai_label').checked);
+
+            try {
+                const res = await fetch(form.action, { method: 'POST', body: formData });
+                if (!res.ok) throw new Error("Gagal proses di server");
+                
+                showToast("✅ Berhasil disimpan ke folder output!", "success");
+                
+                // Reset UI for next content
+                setTimeout(() => {
+                    if(isPreviewMode) togglePreviewMode();
+                    document.getElementById('previewContainer').style.display = 'none';
+                    document.getElementById('upload_section').style.display = 'block';
+                    document.getElementById('image_file').value = '';
+                    document.getElementById('sourceImage').src = '';
+                    document.getElementById('resultPreview').src = '';
+                    // Clear all form fields
+                    ['aiTopic', 'post_title', 'summary', 'hashtags', 'cta', 'caption', 'description', 'image_prompt', 'tone'].forEach(id => {
+                       const el = document.getElementById(id);
+                       if (el) el.value = '';
+                    });
+                    document.getElementById('use_ai_label').checked = false;
+                }, 1500);
+
+            } catch (err) {
+                showToast("Gagal menyimpan: " + err.message, "error");
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        });
+        
+        // Listen for standard paste event on window
+        window.addEventListener('paste', e => {
+            const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+            for (const item of items) {
+                if (item.type.indexOf('image') === 0) {
+                    const blob = item.getAsFile();
+                    const file = new File([blob], "clipboard.png", { type: blob.type });
+                    const dt = new DataTransfer();
+                    dt.items.add(file);
+                    const input = document.getElementById('image_file');
+                    input.files = dt.files;
+                    previewImage(input);
+                    showToast('Gambar berhasil di-paste!', 'success');
+                    break;
+                }
+            }
+        });
+    </script>
+</body>
+</html>

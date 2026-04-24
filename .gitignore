@@ -26,3 +26,4 @@ uploadedfb.txt
 *.swp
 *.swo
 accounts.json
+.thumb_cache/

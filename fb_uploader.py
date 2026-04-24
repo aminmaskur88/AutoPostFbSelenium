@@ -340,7 +340,7 @@ def get_next_folder(base_dir):
                 last_mtime = mtime
                 last_was_video = is_video
         else:
-            item = {'name': f, 'ctime': os.path.getctime(f_path)}
+            item = {'name': f, 'ctime': os.path.getmtime(f_path)}
             if is_video:
                 pending_videos.append(item)
             else:
