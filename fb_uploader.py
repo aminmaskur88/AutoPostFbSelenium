@@ -309,6 +309,25 @@ def get_next_folder(base_dir):
     if not os.path.exists(base_dir):
         return None
         
+    # --- CEK QUEUE ORDER DARI WEB DASHBOARD ---
+    order_path = os.path.join(base_dir, "queue_order.json")
+    if os.path.exists(order_path):
+        try:
+            with open(order_path, "r", encoding="utf-8") as f:
+                custom_order = json.load(f)
+            
+            # Cari folder pertama di antrean kustom yang belum diupload
+            for f_name in custom_order:
+                f_path = os.path.join(base_dir, f_name)
+                marker = os.path.join(f_path, "uploadedfb.txt")
+                if os.path.isdir(f_path) and not os.path.exists(marker):
+                    media_files = [file for file in os.listdir(f_path) if file.lower().endswith((".mp4", ".jpg", ".png", ".jpeg", ".webp"))]
+                    if media_files:
+                        return f_name
+        except Exception as e:
+            print(f"[!] Error membaca queue_order.json: {e}")
+    # ------------------------------------------
+            
     pending_photos = []
     pending_videos = []
     uploaded_photos_count = 0
@@ -409,7 +428,7 @@ def save_config(config):
 if __name__ == "__main__":
     is_headless = input("Gunakan Mode Headless (n VNC)? (y/n): ").lower() == 'y'
     while True:
-        print("\n=== FB UPLOADER (FIFO & Balanced Mode) ===")
+        print("\n=== FB UPLOADER (Web Dashboard Queue & Balanced Fallback) ===")
         print("1. Upload Konten (Manual/Auto Scan)\n2. Atur Folder Akun\n3. Keluar")
         
         choice = input("Pilih (1-3): ").strip()
@@ -448,7 +467,7 @@ if __name__ == "__main__":
                     if not f_name: 
                         print("[!] Tidak ada konten baru.")
                         continue
-                    print(f"[*] Folder Berikutnya (FIFO & Selang-Seling): {f_name}")
+                    print(f"[*] Folder Berikutnya: {f_name}")
                     run_fb_simulation(p, os.path.join(base_dir, f_name), headless=is_headless)
                 
                 elif mode == '2':
