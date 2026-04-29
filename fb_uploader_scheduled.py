@@ -44,7 +44,24 @@ def run_fb_scheduled_task(driver, profile_name, folder_post, schedule_time):
         except: pass
     
     title = meta.get('post_title') or folder_name.replace("_", " ").replace("-", " ").title()
-    caption_text = f"{title}\n\n{meta.get('summary', '')}".strip()
+    summary = meta.get('summary', '').strip()
+    cta = meta.get('cta', '').strip()
+    hashtags = meta.get('hashtags', [])
+    
+    # Format Hashtags: Pastikan diawali # dan dipisahkan spasi
+    formatted_tags = ""
+    if hashtags:
+        tags_list = [f"#{tag.lstrip('#').strip()}" for tag in hashtags if tag.strip()]
+        formatted_tags = " ".join(tags_list)
+
+    # Gabungkan semua komponen
+    caption_parts = []
+    if title: caption_parts.append(f"*{title}*") # Tebalkan judul (opsional, FB mendukung beberapa formatting)
+    if summary: caption_parts.append(summary)
+    if cta: caption_parts.append(cta)
+    if formatted_tags: caption_parts.append(formatted_tags)
+    
+    caption_text = "\n\n".join(caption_parts).strip()
 
     try:
         print(f"[*] Memproses {folder_name} -> Jadwal: {schedule_time}")
@@ -77,27 +94,43 @@ def run_fb_scheduled_task(driver, profile_name, folder_post, schedule_time):
             "| //div[@role='dialog']//div[@aria-label='Next']"
             "| //div[@role='dialog']//div[@role='button']//span[text()='Berikutnya' or text()='Next']"
         )
+        opt_xpath = "//div[@role='dialog']//span[contains(text(), 'Opsi penjadwalan')] | //div[@role='dialog']//div[@aria-label='Opsi penjadwalan']"
         
         try:
-            human_delay(1, 2)
-            buttons = driver.find_elements(By.XPATH, next_btn_xpath)
-            visible_next = [btn for btn in buttons if btn.is_displayed()]
+            # Loop Adaptive: Klik Berikutnya sampai 'Opsi penjadwalan' muncul
+            # Berguna untuk Video yang punya layar tambahan "Reels/Video"
+            form_found = False
+            for i in range(3):
+                human_delay(2, 3)
+                
+                # Cek apakah 'Opsi penjadwalan' sudah ada tanpa klik Next lagi
+                opts = driver.find_elements(By.XPATH, opt_xpath)
+                if opts and opts[0].is_displayed():
+                    target_opt = opts[0]
+                    form_found = True
+                    break
+                
+                # Jika belum ada, klik 'Berikutnya'
+                buttons = driver.find_elements(By.XPATH, next_btn_xpath)
+                visible_next = [btn for btn in buttons if btn.is_displayed()]
+                if visible_next:
+                    print(f"    [*] Mengklik tombol 'Berikutnya' (Langkah {i+1})...")
+                    driver.execute_script("arguments[0].click();", visible_next[-1])
+                    time.sleep(3)
+                else:
+                    print(f"    [!] Tombol 'Berikutnya' tidak terlihat di langkah {i+1}.")
+                    break
             
-            if visible_next:
-                print("    [*] Mengklik tombol 'Berikutnya'...")
-                driver.execute_script("arguments[0].click();", visible_next[-1])
-                time.sleep(2)
-            else:
-                print("    [!] Tombol 'Berikutnya' tidak terlihat.")
+            if not form_found:
+                # Coba cari sekali lagi dengan wait formal yang lebih sabar (60 detik)
+                # Video biasanya butuh waktu processing lebih lama sebelum menu ini muncul
+                print("[*] Mencari menu 'Opsi penjadwalan' secara intensif (menunggu hingga 60 detik)...")
+                target_opt = WebDriverWait(driver, 60).until(EC.element_to_be_clickable((By.XPATH, opt_xpath)))
 
-            # Klik Opsi Penjadwalan
-            print("[*] Mencari menu 'Opsi penjadwalan'...")
-            opt_xpath = "//div[@role='dialog']//span[contains(text(), 'Opsi penjadwalan')] | //div[@role='dialog']//div[@aria-label='Opsi penjadwalan']"
             # Klik Opsi Penjadwalan (SAH)
-            target_opt = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, opt_xpath)))
             driver.execute_script("arguments[0].click();", target_opt)
             print("    [+] Menu 'Opsi penjadwalan' terbuka.")
-            time.sleep(2)
+            time.sleep(2) # Beri waktu container form untuk render sempurna
 
             # --- PENGATURAN OTOMATIS (SPECIFIC TAB SEQUENCE) ---
             print(f"[*] Menyiapkan waktu posting: {schedule_time}")
@@ -112,43 +145,43 @@ def run_fb_scheduled_task(driver, profile_name, folder_post, schedule_time):
             # 1. TAB Pertama (Abaikan)
             print("    [*] Navigasi TAB 1 (Abaikan)...")
             actions.send_keys(Keys.TAB).perform()
-            time.sleep(1)
+            time.sleep(0.3)
 
             # 2. Navigasi ke kotak Tanggal (TAB 2)
             print("    [*] Navigasi TAB 2 (Tanggal)...")
             actions.send_keys(Keys.TAB).perform()
-            time.sleep(0.8)
+            time.sleep(0.3)
             active_el = driver.switch_to.active_element
             active_el.send_keys(Keys.CONTROL + "a")
             active_el.send_keys(Keys.BACKSPACE)
             active_el.send_keys(date_val)
-            time.sleep(0.5) # Jeda sebelum ENTER
+            time.sleep(0.2)
             active_el.send_keys(Keys.ENTER)
             print("    [+] Tanggal di-ENTER.")
-            time.sleep(0.8)
+            time.sleep(0.3)
 
             # 3. Navigasi ke kotak Waktu (TAB 3)
             print("    [*] Navigasi TAB 3 (Waktu)...")
             actions.send_keys(Keys.TAB).perform()
-            time.sleep(0.8)
+            time.sleep(0.3)
             active_el = driver.switch_to.active_element
             active_el.send_keys(Keys.CONTROL + "a")
             active_el.send_keys(Keys.BACKSPACE)
             active_el.send_keys(time_val)
-            time.sleep(0.5) # Jeda sebelum ENTER
+            time.sleep(0.2)
             active_el.send_keys(Keys.ENTER)
             print("    [+] Jam di-ENTER.")
-            time.sleep(0.8)
+            time.sleep(0.3)
 
             # 4. Navigasi ke tombol Konfirmasi (TAB 4)
             print("    [*] Navigasi TAB 4 (Konfirmasi)...")
             actions.send_keys(Keys.TAB).perform()
-            time.sleep(1)
+            time.sleep(0.4)
             active_el = driver.switch_to.active_element
             print(f"    [*] Menekan ENTER pada: {active_el.text or 'Tombol Biru'}")
             active_el.send_keys(Keys.ENTER)
             
-            time.sleep(2)
+            time.sleep(1)
 
             # 4. Klik Jadwalkan FINAL
             print("[*] Mengklik tombol 'Jadwalkan' final...")
@@ -189,7 +222,44 @@ if __name__ == "__main__":
     pending_folders = [f for f in sub_folders if not os.path.exists(os.path.join(f, "uploadedfb.txt"))]
 
     if not pending_folders: print("[!] Tidak ada folder baru."); sys.exit()
-    print(f"[+] Ditemukan {len(pending_folders)} sub-folder.")
+    print(f"[+] Ditemukan {len(pending_folders)} sub-folder yang belum di-upload.")
+
+    # --- LOGIKA PRIORITAS DASHBOARD ---
+    order_path = os.path.join(parent_folder, "queue_order.json")
+    if os.path.exists(order_path):
+        try:
+            with open(order_path, "r", encoding="utf-8") as f:
+                custom_order = json.load(f)
+            
+            # Buat mapping folder name -> full path untuk pending_folders
+            pending_map = {os.path.basename(f): f for f in pending_folders}
+            
+            ordered_pending = []
+            for name in custom_order:
+                if name in pending_map:
+                    ordered_pending.append(pending_map[name])
+                    del pending_map[name] # Hapus agar tidak duplikat
+            
+            # Tambahkan sisa folder yang mungkin baru dibuat tapi belum ada di order.json
+            remaining = list(pending_map.values())
+            pending_folders = ordered_pending + remaining
+            
+            if ordered_pending:
+                print("[+] Menggunakan urutan kustom dari Dashboard.")
+        except Exception as e:
+            print(f"[!] Gagal membaca queue_order.json: {e}")
+
+    num_post = input("Jumlah postingan yang ingin dijadwalkan (Enter = Semua): ").strip()
+    limit = int(num_post) if num_post.isdigit() else 0
+    
+    is_random = input("Acak urutan folder? (y/n): ").lower() == 'y'
+    if is_random:
+        random.shuffle(pending_folders)
+        print("[*] Urutan folder diacak.")
+    
+    if limit > 0:
+        pending_folders = pending_folders[:limit]
+        print(f"[*] Memproses {len(pending_folders)} folder terpilih.")
 
     start_str = input("Waktu Mulai (YYYY-MM-DD HH:MM) [Kosong = Sekarang]: ").strip()
     current_time = datetime.now() + timedelta(minutes=30) if not start_str else datetime.strptime(start_str, "%Y-%m-%d %H:%M")
