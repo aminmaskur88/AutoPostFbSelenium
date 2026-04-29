@@ -26,6 +26,7 @@ Aplikasi ini memudahkan Anda mengunggah konten (video/gambar) dari folder terpis
 | File / Folder | Deskripsi |
 | :--- | :--- |
 | **`fb_uploader.py`** | ⚙️ **Main Engine:** Skrip utama untuk melakukan posting (Manual/Auto). |
+| **`fb_uploader_scheduled.py`** | 📅 **Scheduled Uploader:** Skrip untuk mengunggah postingan dengan sistem penjadwalan waktu tertentu (Sudah dioptimasi untuk kecepatan upload dan navigasi). |
 | **`fb_uploader_mobile.py`** | 📱 **Mobile Edition:** Skrip tangguh via `m.facebook.com` menggunakan injeksi cookies JSON (Bisa jalan Headless/Tanpa VNC). |
 | **`fb_login.py`** | 🔑 **Login Helper:** Digunakan untuk login pertama kali dan mengekstrak cookies/session. |
 | **`utils.py`** | 🛠️ **Core Utils:** Berisi konfigurasi driver, anti-bot, dan fungsi pembersih profil. |
