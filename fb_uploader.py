@@ -36,7 +36,81 @@ def scroll_to_top(driver):
     except Exception as e:
         print(f"[-] Gagal scroll ke atas: {e}")
 
+def manual_fallback(driver, message="Terjebak di dialog?"):
+    """
+    Fungsi cadangan jika otomatisasi macet.
+    Menampilkan semua tombol yang ada di layar dan meminta user memilih.
+    """
+    print(f"\n[!] {message}")
+    print("[*] Mencari tombol yang bisa diklik untuk membantu bot...")
+    
+    try:
+        dialogs = driver.find_elements(By.XPATH, "//div[@role='dialog']")
+        container = dialogs[-1] if dialogs else driver.find_element(By.TAG_NAME, "body")
+        
+        selectors = [".//div[@role='button']", ".//button", ".//div[@aria-label]", ".//span[@role='button']", ".//i"]
+        candidates = []
+        for sel in selectors:
+            found = container.find_elements(By.XPATH, sel)
+            for el in found:
+                try:
+                    if el.is_displayed(): candidates.append(el)
+                except: pass
+        
+        unique_btns = []
+        seen_ids = set()
+        for b in candidates:
+            if b.id not in seen_ids:
+                unique_btns.append(b); seen_ids.add(b.id)
+
+        if not unique_btns:
+            print("    [-] Tidak ada tombol ditemukan.")
+            return
+
+        print("\n=== ASISTEN DARURAT ===")
+        for i, btn in enumerate(unique_btns):
+            lbl = btn.text.strip().replace("\n", " ") or btn.get_attribute("aria-label") or f"[{btn.tag_name.upper()}]"
+            print(f"{i+1}. {lbl}")
+        print("0. Lewati / Selesai (Lanjut Otomatis)")
+        
+        choice = input("[?] Pilih nomor tombol untuk diklik (atau 0): ").strip()
+        if choice and choice != '0':
+            idx = int(choice) - 1
+            if 0 <= idx < len(unique_btns):
+                target = unique_btns[idx]
+                driver.execute_script("arguments[0].style.outline = '5px solid red';", target)
+                driver.execute_script("arguments[0].click();", target)
+                print("[+] Berhasil diklik. Mencoba lanjut otomatis...")
+                time.sleep(2)
+    except Exception as e:
+        print(f"[-] Gagal dalam mode asisten: {e}")
+
+def move_to_back(base_dir, folder_name):
+    """Memindahkan folder ke urutan paling belakang dengan memperbarui timestamp 
+    dan menggeser posisinya di queue_order.json (jika ada)."""
+    folder_path = os.path.join(base_dir, folder_name)
+    if os.path.exists(folder_path):
+        # Update timestamp agar di paling bawah saat scan folder (FIFO)
+        os.utime(folder_path, None)
+        
+        # Update queue_order.json jika ada
+        order_path = os.path.join(base_dir, "queue_order.json")
+        if os.path.exists(order_path):
+            try:
+                with open(order_path, "r", encoding="utf-8") as f:
+                    order = json.load(f)
+                if folder_name in order:
+                    order.remove(folder_name)
+                    order.append(folder_name)
+                    with open(order_path, "w", encoding="utf-8") as f:
+                        json.dump(order, f, indent=4)
+                print(f"[*] Folder '{folder_name}' dipindahkan ke antrean paling belakang.")
+            except Exception as e:
+                print(f"[-] Gagal update queue_order.json: {e}")
+
 def run_fb_simulation(profile_name, folder_post, headless=False):
+    base_dir = os.path.dirname(folder_post)
+    folder_name = os.path.basename(folder_post)
     profile_path = os.path.join(os.getcwd(), "fb_profiles", profile_name)
     if not os.path.exists(profile_path):
         print(f"[!] Folder profil '{profile_name}' tidak ditemukan!")
@@ -193,18 +267,22 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
             "| //div[@aria-label='Selesai']"
         )
         
-        # Loop untuk menangani tombol 'Berikutnya' yang muncul berkali-kali (misal: optimasi video, subtitle, dll)
+        # Loop untuk menangani tombol 'Berikutnya' yang muncul berkali-kali
+        is_video = video_file.lower().endswith((".mp4", ".mov", ".avi"))
         for i in range(4): 
             try:
-                human_delay(3, 5) # Berikan waktu agar React merender dialog baru
+                human_delay(3, 5)
                 buttons = driver.find_elements(By.XPATH, next_btn_xpath)
-                # Ambil yang terlihat dan biasanya tombol utama ada di bagian bawah/akhir list
                 visible_buttons = [btn for btn in buttons if btn.is_displayed()]
                 
                 if visible_buttons:
                     print(f"    [*] Mengklik tombol Berikutnya/Selesai (Tahap {i+1})...")
                     driver.execute_script("arguments[0].click();", visible_buttons[-1])
                 else:
+                    # JIKA VIDEO DAN MACET DI DIALOG, AKTIFKAN ASISTEN
+                    if is_video and i >= 1: # Jika sudah coba sekali tapi masih ada dialog
+                        print("    [?] Sepertinya ada dialog video yang menghalangi...")
+                        manual_fallback(driver, "Bantu bot melewati dialog video ini.")
                     break
             except Exception:
                 break
@@ -230,8 +308,17 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
             
             if not visible_btns:
                 # Fallback jika pencarian super ketat gagal
-                fallback_xpath = "//div[@role='dialog']//div[@role='button']//span[text()='Kirim' or text()='Posting' or text()='Selesai']"
-                submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, fallback_xpath)))
+                print("[!] Tombol Posting otomatis tidak ditemukan.")
+                manual_fallback(driver, "Bot tidak menemukan tombol Posting. Silakan pilih manual:")
+                
+                # Coba cari lagi setelah bantuan manual
+                candidates = driver.find_elements(By.XPATH, post_submit_xpath)
+                visible_btns = [b for b in candidates if b.is_displayed()]
+                if not visible_btns:
+                    fallback_xpath = "//div[@role='dialog']//div[@role='button']//span[text()='Kirim' or text()='Posting' or text()='Selesai']"
+                    submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, fallback_xpath)))
+                else:
+                    submit_btn = visible_btns[-1]
             else:
                 # Tombol Kirim/Posting biasanya adalah tombol terakhir (paling bawah) di dialog
                 submit_btn = visible_btns[-1]
@@ -293,14 +380,20 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
                     f.write(f"Selesai: {time.strftime('%Y-%m-%d %H:%M:%S')}")
             else:
                 print("[!] Peringatan: Ada indikasi pesan error atau kendala pada halaman.")
+                move_to_back(base_dir, folder_name)
         except Exception as e:
             print(f"[-] Gagal konfirmasi postingan: {e}")
+            move_to_back(base_dir, folder_name)
         except Exception as e:
             print(f"[-] Gagal kirim postingan: {e}")
+            move_to_back(base_dir, folder_name)
 
     except Exception as e:
         print(f"[!] Error saat eksekusi: {e}")
+        move_to_back(base_dir, folder_name)
     finally:
+        print("[*] Menunggu 1 menit sebelum menutup browser untuk memastikan stabilitas upload...")
+        time.sleep(60)
         driver.quit()
         cleanup_profile(profile_path)
 
