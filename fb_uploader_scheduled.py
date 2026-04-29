@@ -56,7 +56,7 @@ def run_fb_scheduled_task(driver, profile_name, folder_post, schedule_time):
 
     # Gabungkan semua komponen
     caption_parts = []
-    if title: caption_parts.append(f"*{title}*") # Tebalkan judul (opsional, FB mendukung beberapa formatting)
+    if title: caption_parts.append(title)
     if summary: caption_parts.append(summary)
     if cta: caption_parts.append(cta)
     if formatted_tags: caption_parts.append(formatted_tags)
