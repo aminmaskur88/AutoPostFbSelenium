@@ -130,29 +130,42 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time):
             print("    [+] Menu 'Opsi penjadwalan' terbuka.")
             time.sleep(2)
 
-            # --- PENGATURAN OTOMATIS ---
+            # --- PENGATURAN OTOMATIS (MODE STABIL) ---
             dt_obj = datetime.strptime(schedule_time, "%Y-%m-%d %H:%M")
             date_val, time_val = dt_obj.strftime("%d/%m/%Y"), dt_obj.strftime("%H:%M")
             actions = ActionChains(driver)
             
+            # 1. TAB Pertama (Abaikan)
             actions.send_keys(Keys.TAB).perform()
-            time.sleep(0.3)
-            actions.send_keys(Keys.TAB).perform()
-            time.sleep(0.3)
-            active_el = driver.switch_to.active_element
-            active_el.send_keys(Keys.CONTROL + "a", Keys.BACKSPACE, date_val, Keys.ENTER)
-            time.sleep(0.3)
-            
-            actions.send_keys(Keys.TAB).perform()
-            time.sleep(0.3)
-            active_el = driver.switch_to.active_element
-            active_el.send_keys(Keys.CONTROL + "a", Keys.BACKSPACE, time_val, Keys.ENTER)
-            time.sleep(0.3)
-            
-            actions.send_keys(Keys.TAB).perform()
-            time.sleep(0.4)
-            driver.switch_to.active_element.send_keys(Keys.ENTER)
             time.sleep(1)
+
+            # 2. Navigasi ke kotak Tanggal (TAB 2)
+            actions.send_keys(Keys.TAB).perform()
+            time.sleep(0.8)
+            active_el = driver.switch_to.active_element
+            active_el.send_keys(Keys.CONTROL + "a")
+            active_el.send_keys(Keys.BACKSPACE)
+            active_el.send_keys(date_val)
+            time.sleep(0.5)
+            active_el.send_keys(Keys.ENTER)
+            time.sleep(0.8)
+            
+            # 3. Navigasi ke kotak Waktu (TAB 3)
+            actions.send_keys(Keys.TAB).perform()
+            time.sleep(0.8)
+            active_el = driver.switch_to.active_element
+            active_el.send_keys(Keys.CONTROL + "a")
+            active_el.send_keys(Keys.BACKSPACE)
+            active_el.send_keys(time_val)
+            time.sleep(0.5)
+            active_el.send_keys(Keys.ENTER)
+            time.sleep(0.8)
+            
+            # 4. Navigasi ke tombol Konfirmasi (TAB 4)
+            actions.send_keys(Keys.TAB).perform()
+            time.sleep(1)
+            driver.switch_to.active_element.send_keys(Keys.ENTER)
+            time.sleep(2)
 
             final_xpath = "//div[@role='dialog']//div[@role='button']//span[text()='Jadwalkan' or text()='Schedule']"
             final_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, final_xpath)))
