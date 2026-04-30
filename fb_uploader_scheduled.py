@@ -170,6 +170,22 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time):
             final_xpath = "//div[@role='dialog']//div[@role='button']//span[text()='Jadwalkan' or text()='Schedule']"
             final_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, final_xpath)))
             driver.execute_script("arguments[0].click();", final_btn)
+            print("    [*] Menunggu konfirmasi akhir...")
+            
+            # --- PENANGANAN DIALOG WHATSAPP / SHARE ---
+            # Kadang muncul dialog "Bagikan ke WhatsApp" yang menghalangi
+            time.sleep(5)
+            try:
+                # Cari dialog yang mengandung teks WhatsApp atau Bagikan
+                whatsapp_xpath = "//div[@role='dialog']//span[contains(text(), 'WhatsApp')] | //div[@role='dialog']//span[contains(text(), 'Bagikan')] | //div[@role='dialog']//div[@aria-label='Tutup' or @aria-label='Close']"
+                dialogs = driver.find_elements(By.XPATH, whatsapp_xpath)
+                if dialogs:
+                    print("    [*] Mendeteksi dialog konfirmasi/WhatsApp, menutup...")
+                    actions = ActionChains(driver)
+                    actions.send_keys(Keys.ESCAPE).perform()
+                    time.sleep(2)
+            except:
+                pass
             
             # Marker Upload
             marker_file = post_path + ".uploadedfb" if is_file else os.path.join(post_path, "uploadedfb.txt")
