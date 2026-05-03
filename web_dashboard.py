@@ -194,6 +194,12 @@ HTML_TEMPLATE = """
         
         .card-actions { display: flex; gap: 6px; margin-top: auto; }
         .card-actions button { flex: 1; }
+
+        /* Progress Bar */
+        .progress-container { margin-top: 8px; display: none; }
+        .progress-bar-bg { width: 100%; background: var(--bg-workspace); height: 8px; border-radius: 4px; overflow: hidden; position: relative; }
+        .progress-bar-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.5s ease; }
+        .progress-status { font-size: 10px; color: var(--accent); font-weight: bold; margin-bottom: 4px; display: flex; justify-content: space-between; }
         
         .alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; display: flex; align-items: center; gap: 10px; }
         .alert-info { background-color: rgba(59, 130, 246, 0.1); color: var(--accent); border: 1px solid var(--accent); }
@@ -285,8 +291,8 @@ HTML_TEMPLATE = """
                     <span>Menunggu:</span> <strong>{{ queue|selectattr('uploaded', 'equalto', false)|list|length }}</strong>
                 </div>
                 <hr style="border:none; border-top:1px solid var(--border-color); margin: 4px 0;">
-                <button class="btn-primary" onclick="saveOrder()" id="btnSaveOrder" style="background:#f59e0b; color:#fff;">
-                    <span class="material-icons-round">save</span> Simpan Urutan (Drag & Drop)
+                <button class="btn-primary" id="btnSaveOrder" style="background:var(--success); color:#fff; cursor:default;" onclick="return false;">
+                    <span class="material-icons-round">check_circle</span> Urutan Tersimpan
                 </button>
             </div>
         </div>
@@ -340,8 +346,21 @@ HTML_TEMPLATE = """
                             <div class="caption-preview" title="{{ item.caption }}">
                                 {{ item.caption }}
                             </div>
+
+                            <div class="progress-container" id="progress-{{ item.name }}">
+                                <div class="progress-status">
+                                    <span class="status-text">Uploading...</span>
+                                    <span class="status-percent">0%</span>
+                                </div>
+                                <div class="progress-bar-bg">
+                                    <div class="progress-bar-fill"></div>
+                                </div>
+                            </div>
                             
                             <div class="card-actions">
+                                <button class="btn-primary" onclick="postNow('{{ item.name|replace("'", "\\'") }}')" title="Post Sekarang">
+                                    <span class="material-icons-round" style="font-size:14px;">send</span> Post Now
+                                </button>
                                 <button class="btn-outline" onclick="editCaption('{{ item.name|replace("'", "\\'") }}')" title="Ubah Caption">
                                     <span class="material-icons-round" style="font-size:14px;">edit</span> Edit
                                 </button>
@@ -523,12 +542,7 @@ HTML_TEMPLATE = """
                     swapThreshold: 0.65,
                     invertSwap: true, // Membuat pergeseran di dalam Grid lebih masuk akal
                     onEnd: function() {
-                        showToast("Urutan diubah! Jangan lupa klik 'Simpan Urutan'.", "warning");
-                        const btn = document.getElementById('btnSaveOrder');
-                        if(btn) {
-                            btn.style.transform = 'scale(1.05)';
-                            setTimeout(() => btn.style.transform = 'none', 300);
-                        }
+                        saveOrder(); // Auto Save
                     }
                 });
             }
@@ -539,8 +553,9 @@ HTML_TEMPLATE = """
             const order = sortableInstance.toArray();
             
             const btn = document.getElementById('btnSaveOrder');
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '<span class="material-icons-round" style="animation:spin 2s linear infinite;">sync</span> Menyimpan...';
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '<span class="material-icons-round" style="animation:spin 2s linear infinite; font-size:14px;">sync</span> Menyimpan...';
+            btn.style.background = '#6b7280';
             btn.disabled = true;
 
             fetch('/api/reorder', {
@@ -549,17 +564,72 @@ HTML_TEMPLATE = """
                 body: JSON.stringify({ base_dir: selectedDir, order: order })
             }).then(r => r.json()).then(res => {
                 if(res.success) {
-                    showToast('Urutan berhasil disimpan!', 'success');
-                    setTimeout(() => location.reload(), 1000);
+                    showToast('Urutan disimpan otomatis!', 'success');
+                    btn.innerHTML = '<span class="material-icons-round" style="font-size:14px;">check_circle</span> Urutan Tersimpan';
+                    btn.style.background = 'var(--success)';
                 } else {
                     showToast('Gagal menyimpan urutan: ' + res.error, 'error');
-                    btn.innerHTML = originalText;
+                    btn.innerHTML = originalHTML;
+                    btn.style.background = '#f59e0b';
                     btn.disabled = false;
                 }
             }).catch(e => {
                 showToast('Terjadi kesalahan jaringan!', 'error');
-                btn.innerHTML = originalText;
+                btn.innerHTML = originalHTML;
+                btn.style.background = '#f59e0b';
                 btn.disabled = false;
+            });
+        }
+
+        function postNow(folderName) {
+            if(!confirm(`Konfirmasi: Ingin posting '${folderName}' sekarang juga?`)) return;
+            
+            showToast(`Memulai proses posting untuk '${folderName}'...`, 'info');
+            
+            // Tampilkan progress bar
+            const pContainer = document.getElementById(`progress-${folderName}`);
+            if(pContainer) {
+                pContainer.style.display = 'block';
+                pContainer.querySelector('.status-text').innerText = 'Starting...';
+                pContainer.querySelector('.status-percent').innerText = '0%';
+                pContainer.querySelector('.progress-bar-fill').style.width = '0%';
+            }
+
+            fetch('/api/post_now', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ base_dir: selectedDir, folder_name: folderName })
+            }).then(r => r.json()).then(res => {
+                if(res.success) {
+                    showToast('Proses posting berhasil dimulai!', 'success');
+                    
+                    // Start polling progress
+                    const interval = setInterval(() => {
+                        fetch(`/api/progress?base_dir=${encodeURIComponent(selectedDir)}&folder_name=${encodeURIComponent(folderName)}`)
+                            .then(r => r.json())
+                            .then(data => {
+                                if(pContainer) {
+                                    pContainer.querySelector('.status-text').innerText = data.status;
+                                    pContainer.querySelector('.status-percent').innerText = data.progress + '%';
+                                    pContainer.querySelector('.progress-bar-fill').style.width = data.progress + '%';
+                                }
+                                
+                                if(data.progress >= 100 || data.status.startsWith('Gagal') || data.status.startsWith('Error')) {
+                                    clearInterval(interval);
+                                    if(data.progress >= 100) {
+                                        setTimeout(() => location.reload(), 3000);
+                                    }
+                                }
+                            });
+                    }, 2000);
+
+                } else {
+                    showToast('Gagal memulai posting: ' + res.error, 'error');
+                    if(pContainer) pContainer.style.display = 'none';
+                }
+            }).catch(e => {
+                showToast('Terjadi kesalahan jaringan!', 'error');
+                if(pContainer) pContainer.style.display = 'none';
             });
         }
 
@@ -887,6 +957,99 @@ def serve_thumbnail():
         pass
         
     return send_from_directory(os.path.dirname(file_path), os.path.basename(file_path))
+
+@app.route("/api/post_now", methods=["POST"])
+def post_now_api():
+    data = request.json
+    base_dir = data.get("base_dir")
+    folder_name = data.get("folder_name")
+    
+    if not base_dir or not folder_name:
+        return jsonify({"success": False, "error": "Invalid data"})
+        
+    folder_path = os.path.abspath(os.path.join(base_dir, folder_name))
+    
+    # Cari profil yang sesuai dengan base_dir di config.json
+    profile_name = None
+    if os.path.exists("config.json"):
+        try:
+            with open("config.json", "r") as f:
+                cfg = json.load(f)
+                for p_name, p_path in cfg.items():
+                    if os.path.abspath(p_path) == os.path.abspath(base_dir):
+                        profile_name = p_name
+                        break
+        except: pass
+    
+    if not profile_name:
+        # Fallback cari di accounts.json
+        if os.path.exists("accounts.json"):
+            try:
+                with open("accounts.json", "r") as f:
+                    cfg = json.load(f)
+                    for p_name, v in cfg.items():
+                        if os.path.abspath(v.get("folder_path", "")) == os.path.abspath(base_dir):
+                            profile_name = p_name
+                            break
+            except: pass
+
+    if not profile_name:
+        return jsonify({"success": False, "error": "Profil tidak ditemukan untuk folder ini"})
+
+    # Jalankan uploader di background agar tidak memblock web server
+    # Kita gunakan fb_uploader_scheduled.py dengan mode CLI yang sudah kita modifikasi
+    # Namun karena di sini kita ingin spesifik 1 folder, lebih mudah memanggil fb_uploader.py 
+    # atau memanggil fb_uploader_scheduled.py dengan argumen khusus jika kita menambahkannya.
+    
+    # Opsi: Panggil fb_uploader.py (asumsi fb_uploader.py bisa menerima argumen atau diimport)
+    # Untuk amannya, kita jalankan subprocess yang memanggil script uploader
+    
+    try:
+        # Log untuk debugging
+        with open("dashboard_debug.log", "a") as log:
+            log.write(f"[{time.ctime()}] Post Now: {folder_name} using profile {profile_name}\n")
+            log.write(f"[{time.ctime()}] CMD: python3 fb_uploader_scheduled.py --profile {profile_name} --path {folder_path} --limit 1 --mode 2 --interval 0 --headless\n")
+
+        cmd = [
+            'python3', 'fb_uploader_scheduled.py',
+            '--profile', profile_name,
+            '--path', folder_path,
+            '--limit', '1',
+            '--mode', '2',
+            '--interval', '0',
+            '--headless'
+        ]
+        
+        # Jalankan di background dan arahkan error ke log
+        log_file = open("uploader_last_error.log", "w")
+        subprocess.Popen(cmd, stdout=log_file, stderr=log_file)
+        
+        return jsonify({"success": True})
+    except Exception as e:
+        with open("dashboard_debug.log", "a") as log:
+            log.write(f"[{time.ctime()}] ERROR: {str(e)}\n")
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route("/api/progress")
+def progress_api():
+    base_dir = request.args.get("base_dir")
+    folder_name = request.args.get("folder_name")
+    if not base_dir or not folder_name:
+        return jsonify({"error": "Invalid params"}), 400
+        
+    status_file = os.path.join(base_dir, folder_name, "upload_status.json")
+    if os.path.exists(status_file):
+        try:
+            with open(status_file, "r") as f:
+                return jsonify(json.load(f))
+        except: pass
+    
+    # Cek marker jika status file tidak ada (mungkin sudah selesai)
+    marker = os.path.join(base_dir, folder_name, "uploadedfb.txt")
+    if os.path.exists(marker):
+        return jsonify({"status": "SELESAI!", "progress": 100})
+        
+    return jsonify({"status": "Menunggu...", "progress": 0})
 
 @app.route("/api/delete", methods=["POST"])
 def delete_api():
