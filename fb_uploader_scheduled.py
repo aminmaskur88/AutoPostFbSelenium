@@ -148,6 +148,39 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.state.pending_items[:] = new_items
             self.send_response(200)
             self.end_headers()
+        elif self.path == '/delete_photo':
+            with self.state.lock:
+                idx = data['index']
+                filename = data['filename']
+                item_path = self.state.pending_items[idx]
+                media_files = self.state.item_data_map[item_path]['media_files']
+                self.state.item_data_map[item_path]['media_files'] = [m for m in media_files if os.path.basename(m) != filename]
+            self.send_response(200)
+            self.end_headers()
+        elif self.path == '/add_photo':
+            with self.state.lock:
+                idx = data['index']
+                filename = data['filename']
+                photo_data = data['data']
+                item_path = self.state.pending_items[idx]
+                
+                # Tentukan target directory
+                target_dir = item_path if os.path.isdir(item_path) else os.path.dirname(item_path)
+                new_path = os.path.join(target_dir, filename)
+                
+                try:
+                    header, encoded = photo_data.split(",", 1)
+                    file_data = base64.b64decode(encoded)
+                    with open(new_path, "wb") as f:
+                        f.write(file_data)
+                    self.state.item_data_map[item_path]['media_files'].append(new_path)
+                except Exception as e:
+                    print(f"[!] Error saving photo: {e}")
+                    self.send_response(500)
+                    self.end_headers()
+                    return
+            self.send_response(200)
+            self.end_headers()
 
     def generate_html(self):
         items_html = ""
@@ -155,51 +188,111 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
             data = self.state.item_data_map[path]
             name = os.path.basename(path)
             
-            # Thumbnail
-            first_media = data['media_files'][0]
-            ext = os.path.splitext(first_media)[1].lower()
-            is_video = ext in ['.mp4', '.mov', '.avi']
-            media_url = f"/media/{i}/{os.path.basename(first_media)}"
-            
-            thumb_html = f'<img src="{media_url}" style="width:100px; height:100px; object-fit:cover; border-radius:8px;">'
-            if is_video:
-                thumb_html = f'<div style="position:relative; width:100px; height:100px;">{thumb_html}<div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:white; background:rgba(0,0,0,0.5); border-radius:50%; padding:5px;"><span style="font-size:20px;">▶</span></div></div>'
+            # Media Grid
+            images_html = ""
+            for m_idx, media_path in enumerate(data['media_files']):
+                m_filename = os.path.basename(media_path)
+                ext = os.path.splitext(m_filename)[1].lower()
+                is_video = ext in ['.mp4', '.mov', '.avi']
+                media_url = f"/media/{i}/{m_filename}"
+                
+                if is_video:
+                    media_tag = f'<div class="video-thumb"><img src="{media_url}"><div class="play-icon">▶</div></div>'
+                else:
+                    media_tag = f'<img src="{media_url}">'
+                
+                images_html += f"""
+                <div class="photo-card" id="photo-{i}-{m_filename}">
+                    {media_tag}
+                    <button class="delete-photo-btn" onclick="deletePhoto({i}, '{m_filename}')">×</button>
+                </div>"""
 
             items_html += f"""
-            <div class="item-card" data-index="{i}" style="background:#222; margin-bottom:15px; padding:15px; border-radius:12px; display:flex; gap:15px; border:1px solid #333;">
-                <div style="cursor:grab;" class="handle">☰</div>
-                {thumb_html}
-                <div style="flex:1;">
-                    <div style="font-weight:bold; color:#fff; margin-bottom:5px;">{name}</div>
-                    <div style="font-size:12px; color:#aaa; margin-bottom:10px;">🕒 {data['schedule_time'] or 'Posting Sekarang'} | 🖼️ {len(data['media_files'])} Media</div>
-                    <textarea style="width:100%; background:#111; color:#eee; border:1px solid #444; border-radius:5px; padding:8px; font-family:sans-serif; font-size:13px;" rows="4" onchange="editCaption({i}, this.value)">{data['caption']}</textarea>
+            <div class="item-card" data-index="{i}">
+                <div class="album-header">
+                    <div class="handle">☰</div>
+                    <div class="album-info">
+                        <div class="album-title">{name}</div>
+                        <div class="album-meta">🕒 {data['schedule_time'] or '🚀 Posting SEKARANG'} | 🖼️ {len(data['media_files'])} Media</div>
+                    </div>
+                    <button class="btn-delete" onclick="deleteItem({i})">×</button>
                 </div>
-                <div>
-                    <button onclick="deleteItem({i})" style="background:#ff4444; color:white; border:none; padding:8px; border-radius:5px; cursor:pointer;">Hapus</button>
+                <div class="caption-container">
+                    <textarea onchange="editCaption({i}, this.value)">{data['caption']}</textarea>
+                </div>
+                <div class="photos-container" id="photos-container-{i}">
+                    {images_html}
+                    <div class="add-photo-card" onclick="document.getElementById('add-photo-input-{i}').click()">
+                        <input type="file" id="add-photo-input-{i}" multiple accept="image/*,video/*" style="display: none;" onchange="handlePhotoAdd({i})">
+                        <span>+</span>
+                        <p>Tambah</p>
+                    </div>
                 </div>
             </div>
             """
 
         return f"""
         <!DOCTYPE html>
-        <html>
+        <html lang="id">
         <head>
-            <title>FB Post Preview</title>
+            <title>FB Post Preview & Editor</title>
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
             <style>
-                body {{ font-family: sans-serif; background: #111; color: #eee; padding: 20px; max-width: 800px; margin: 0 auto; }}
-                .handle {{ font-size: 24px; color: #555; display: flex; align-items: center; }}
-                .btn-start {{ background: #28a745; color: white; border: none; padding: 15px 30px; border-radius: 30px; font-size: 18px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 20px; }}
-                .btn-start:hover {{ background: #218838; }}
+                body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #f0f2f5; color: #1c1e21; }}
+                .header {{ background: #1877f2; color: white; padding: 15px; text-align: center; position: sticky; top: 0; z-index: 1000; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                .container {{ max-width: 800px; margin: 20px auto; padding: 0 15px; padding-bottom: 100px; }}
+                
+                .item-card {{ background: white; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.2); overflow: hidden; border: 1px solid #ddd; }}
+                .album-header {{ padding: 12px; border-bottom: 1px solid #ebedf0; display: flex; align-items: center; gap: 12px; background: #fafafa; }}
+                .handle {{ cursor: grab; font-size: 20px; color: #8d949e; }}
+                .album-info {{ flex: 1; }}
+                .album-title {{ font-weight: bold; font-size: 15px; color: #1c1e21; }}
+                .album-meta {{ font-size: 12px; color: #606770; margin-top: 2px; }}
+                
+                .caption-container {{ padding: 12px; }}
+                textarea {{ width: 100%; box-sizing: border-box; border: 1px solid #ddd; border-radius: 6px; padding: 10px; font-family: inherit; font-size: 14px; min-height: 100px; resize: vertical; background: #f5f6f7; transition: border-color 0.2s; }}
+                textarea:focus {{ outline: none; border-color: #1877f2; background: white; }}
+                
+                .photos-container {{ display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; background: #f0f2f5; border-top: 1px solid #ebedf0; }}
+                .photo-card {{ width: calc(25% - 6px); aspect-ratio: 1/1; position: relative; border-radius: 4px; overflow: hidden; background: #000; }}
+                .photo-card img {{ width: 100%; height: 100%; object-fit: cover; }}
+                
+                .delete-photo-btn {{ position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; }}
+                .delete-photo-btn:hover {{ background: #f02849; }}
+
+                .add-photo-card {{ width: calc(25% - 6px); aspect-ratio: 1/1; border: 2px dashed #ccd0d5; border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; color: #606770; background: #f5f6f7; }}
+                .add-photo-card:hover {{ background: #ebedf0; border-color: #1877f2; color: #1877f2; }}
+                .add-photo-card span {{ font-size: 24px; font-weight: bold; }}
+                .add-photo-card p {{ margin: 0; font-size: 11px; font-weight: bold; }}
+
+                .video-thumb {{ position: relative; width: 100%; height: 100%; }}
+                .play-icon {{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; background: rgba(0,0,0,0.5); border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 14px; border: 2px solid white; }}
+                
+                .btn-delete {{ background: #f02849; color: white; border: none; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: bold; }}
+                .btn-delete:hover {{ background: #d22846; }}
+                
+                .footer-actions {{ position: fixed; bottom: 0; left: 0; right: 0; background: white; padding: 15px; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); display: flex; justify-content: center; z-index: 1000; }}
+                .btn-start {{ background: #42b72a; color: white; border: none; padding: 12px 40px; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; }}
+                .btn-start:hover {{ background: #36a420; }}
+                
+                @media (max-width: 600px) {{
+                    .photo-card, .add-photo-card {{ width: calc(33.33% - 6px); }}
+                }}
             </style>
         </head>
         <body>
-            <h2 style="text-align:center; color:#3b82f6;">🚀 FB Post Preview & Editor</h2>
-            <div id="items-container">
+            <div class="header">
+                <h1 style="margin:0; font-size: 18px;">🚀 FB Post Preview & Editor</h1>
+            </div>
+            
+            <div class="container" id="items-container">
                 {items_html}
             </div>
-            <button class="btn-start" onclick="startUpload()">MULAI UPLOAD SEKARANG</button>
+            
+            <div class="footer-actions">
+                <button class="btn-start" onclick="startUpload()">MULAI UPLOAD SEKARANG</button>
+            </div>
 
             <script>
                 const container = document.getElementById('items-container');
@@ -222,10 +315,47 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                     }}
                 }}
 
+                function deletePhoto(index, filename) {{
+                    if(confirm('Hapus media ini?')) {{
+                        fetch('/delete_photo', {{ method: 'POST', body: JSON.stringify({{ index, filename }}) }})
+                        .then(r => {{
+                            if(r.ok) document.getElementById(`photo-${{index}}-${{filename}}`).remove();
+                        }});
+                    }}
+                }}
+
+                function handlePhotoAdd(index) {{
+                    const input = document.getElementById(`add-photo-input-${{index}}`);
+                    const files = input.files;
+                    if (files.length === 0) return;
+
+                    for (const file of files) {{
+                        const reader = new FileReader();
+                        reader.onload = function(e) {{
+                            fetch('/add_photo', {{
+                                method: 'POST',
+                                body: JSON.stringify({{
+                                    index: index,
+                                    filename: file.name,
+                                    data: e.target.result
+                                }})
+                            }}).then(r => {{
+                                if(r.ok) location.reload();
+                                else alert('Gagal menambah foto: ' + file.name);
+                            }});
+                        }};
+                        reader.readAsDataURL(file);
+                    }}
+                }}
+
                 function startUpload() {{
                     if(confirm('Mulai proses upload Selenium?')) {{
                         fetch('/shutdown', {{ method: 'POST', body: JSON.stringify({{}}) }}).then(() => {{
-                            document.body.innerHTML = '<h2 style="text-align:center; margin-top:100px;">✅ Server Ditutup. Silakan kembali ke Terminal untuk melihat proses Selenium.</h2>';
+                            document.body.innerHTML = `
+                                <div style="text-align:center; margin-top:100px; font-family:sans-serif;">
+                                    <h2 style="color:#1877f2;">✅ Server Ditutup</h2>
+                                    <p>Silakan kembali ke Terminal untuk melihat proses Selenium.</p>
+                                </div>`;
                         }});
                     }}
                 }}
@@ -311,8 +441,14 @@ def get_media_files(path):
     if os.path.exists(path):
         for f in os.listdir(path):
             if f.lower().endswith(valid_ext):
-                media.append(os.path.abspath(os.path.join(path, f)))
-    media.sort()
+                file_path = os.path.abspath(os.path.join(path, f))
+                media.append(file_path)
+    
+    # Logika Cerdas: 
+    # 1. Kelompokkan file yang dimodifikasi dalam rentang waktu yang sama (misal per 60 detik).
+    # 2. Di dalam kelompok waktu tersebut, urutkan berdasarkan Nama (A-Z).
+    # 3. File yang disisipkan jauh lebih baru akan otomatis berada di kelompok waktu terakhir (paling bawah).
+    media.sort(key=lambda x: (int(os.path.getmtime(x) / 60), os.path.basename(x).lower()))
     return media
 
 def update_post_status(post_path, status, progress=0):
@@ -581,7 +717,7 @@ def run_album_post_mode(args=None):
                 res = get_datetime_input(f"Jadwal untuk {os.path.basename(item)}")
                 sched_str = None if res == 'now' else res.strftime("%Y-%m-%d %H:%M")
             
-            if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption):
+            if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=media_files):
                 if not sched_str and interval_mins > 0 and item != pending_items[-1]:
                     print(f"[*] Menunggu {interval_mins} menit...")
                     time.sleep(interval_mins * 60)
@@ -914,7 +1050,8 @@ def run_draft_mode():
         driver = setup_driver(os.path.join(os.getcwd(), "fb_profiles", profile), headless=is_headless)
         try:
             print_progress_bar(0, 1)
-            if run_fb_scheduled_task(driver, profile, sel_path, sched_str, pre_caption=sel_data.get('caption')):
+            media_files = sel_data.get('media_files')
+            if run_fb_scheduled_task(driver, profile, sel_path, sched_str, pre_caption=sel_data.get('caption'), custom_media=media_files):
                 del drafts[sel_path]
                 save_drafts(drafts)
                 print_progress_bar(1, 1)
@@ -1031,7 +1168,8 @@ if __name__ == "__main__":
                             pending_items, item_data_map = run_interactive_preview_web([next_post], item_data_map)
                             if not pending_items: continue
                             next_post = pending_items[0]
-                            run_fb_scheduled_task(driver, profile, next_post, None, preview=is_preview, pre_caption=item_data_map[next_post]['caption'])
+                            data = item_data_map[next_post]
+                            run_fb_scheduled_task(driver, profile, next_post, None, preview=is_preview, pre_caption=data['caption'], custom_media=data['media_files'])
                         else:
                             run_fb_scheduled_task(driver, profile, next_post, None, preview=is_preview)
                     finally:
@@ -1178,8 +1316,9 @@ if __name__ == "__main__":
             data = item_data_map.get(item, {})
             sched_str = data.get('schedule_time')
             caption = data.get('caption')
+            media_files = data.get('media_files', [])
             
-            if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption):
+            if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=media_files):
                 # Jeda antar posting jika bukan terjadwal
                 if not sched_str and interval_mins > 0 and item != pending_items[-1]:
                     print(f"[*] Menunggu {interval_mins} menit sebelum posting berikutnya...")
