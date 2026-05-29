@@ -1,23 +1,28 @@
 # 🚀 AutoPostFbSelenium (Termux & PC)
 
-Aplikasi otomatisasi berbasis Python dan Selenium yang dirancang khusus untuk mengelola postingan Facebook secara massal dan cerdas. Aplikasi ini mendukung penuh penggunaan di **Android (via Termux + VNC)** maupun **PC/Laptop**, dengan fitur optimasi profil agar ringan dijalankan di perangkat mobile.
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
+[![Selenium](https://img.shields.io/badge/Selenium-Automation-green.svg)](https://www.selenium.dev/)
+[![Termux](https://img.shields.io/badge/Platform-Termux%20%7C%20PC-orange.svg)](https://termux.dev/)
 
-Aplikasi ini memudahkan Anda mengunggah konten (video/gambar) dari folder terpisah ke banyak akun/profil Facebook dengan sistem penjadwalan (interval) dan deteksi anti-bot yang canggih.
+Aplikasi otomatisasi berbasis Python dan Selenium yang dirancang khusus untuk mengelola postingan Facebook secara massal dan cerdas. Mendukung penuh penggunaan di **Android (via Termux + VNC)** maupun **PC/Laptop**, dengan fitur optimasi profil agar ringan dijalankan di perangkat mobile.
+
+Aplikasi ini memudahkan Anda mengunggah konten (video/gambar) dari folder terpisah ke banyak akun/profil Facebook dengan sistem penjadwalan (interval), dashboard web, dan deteksi anti-bot yang canggih.
 
 ---
 
 ## ✨ Fitur Utama
 
+*   **🌐 Web Dashboard Management:** Kelola antrean postingan, ubah urutan (drag & drop), dan pantau status profil melalui antarmuka web yang modern.
 *   **📱 Support Termux & PC:** Deteksi otomatis environment untuk konfigurasi driver yang tepat (Chromium di Termux atau Chrome di PC).
-*   **👤 Multi-Profile Management:** Mengelola banyak akun Facebook dengan folder profil terpisah (`fb_profiles/`) sehingga sesi login tetap awet dan tidak saling bentrok.
+*   **👤 Multi-Profile Management:** Mengelola banyak akun Facebook dengan folder profil terpisah (`fb_profiles/`) agar sesi login tetap awet.
 *   **🤖 Smart Automation:**
-    *   **Auto-Login/Cookie Extractor:** Membantu mengambil session cookies agar script bisa berjalan tanpa perlu login ulang terus-menerus.
-    *   **Human-Like Interaction:** Simulasi scroll, jeda acak (human delay), dan simulasi pengetikan untuk meminimalisir deteksi bot.
-    *   **Drag & Drop Media Injection:** Teknik suntik file media langsung ke elemen input tersembunyi untuk menghindari kendala UI dialog di Android.
-*   **📂 Folder-Based Posting:** Postingan disusun per-folder yang berisi media dan metadata (`post_meta.json`). Script akan membaca judul, deskripsi, dan hashtag secara otomatis.
-*   **⏳ Interval & Countdown:** Fitur unggah otomatis semua konten dengan jeda waktu (interval) yang dilengkapi tampilan hitung mundur (countdown) di terminal.
-*   **🧹 Auto-Cleanup Profile:** Secara otomatis membersihkan cache, shader, dan log Chrome yang tidak penting untuk menghemat ruang penyimpanan HP (sangat krusial untuk pengguna Termux).
-*   **🔍 XPath Ultimate Helper:** Dilengkapi skrip pembantu untuk mengidentifikasi elemen web secara visual jika struktur Facebook berubah.
+    *   **Interactive Web Preview:** Pratinjau postingan sebelum diunggah melalui browser lokal.
+    *   **Sticky Footer Progress:** Tampilan progress bar yang tetap di bawah terminal saat proses berjalan.
+    *   **Human-Like Interaction:** Simulasi scroll, jeda acak, dan simulasi pengetikan untuk meminimalisir deteksi bot.
+    *   **Drag & Drop Media Injection:** Teknik suntik file media langsung untuk menghindari kendala UI dialog di Android.
+*   **📂 Folder-Based Posting:** Postingan disusun per-folder yang berisi media dan metadata (`post_meta.json`).
+*   **⏳ Advanced Scheduling:** Mendukung posting langsung ("Post Now") atau dijadwalkan ke masa depan ("Scheduled").
+*   **🧹 Auto-Cleanup Profile:** Membersihkan cache, shader, dan log secara otomatis untuk menghemat ruang penyimpanan HP.
 
 ---
 
@@ -25,15 +30,14 @@ Aplikasi ini memudahkan Anda mengunggah konten (video/gambar) dari folder terpis
 
 | File / Folder | Deskripsi |
 | :--- | :--- |
-| **`fb_uploader.py`** | ⚙️ **Main Engine:** Skrip utama untuk melakukan posting (Manual/Auto). |
-| **`fb_uploader_scheduled.py`** | 📅 **Scheduled Uploader:** Skrip untuk mengunggah postingan dengan sistem penjadwalan waktu tertentu (Sudah dioptimasi untuk kecepatan upload dan navigasi). |
-| **`fb_uploader_mobile.py`** | 📱 **Mobile Edition:** Skrip tangguh via `m.facebook.com` menggunakan injeksi cookies JSON (Bisa jalan Headless/Tanpa VNC). |
-| **`fb_login.py`** | 🔑 **Login Helper:** Digunakan untuk login pertama kali dan mengekstrak cookies/session. |
-| **`utils.py`** | 🛠️ **Core Utils:** Berisi konfigurasi driver, anti-bot, dan fungsi pembersih profil. |
-| **`get_xpath.py`** | 🔍 **Dev Tool:** Skrip bantuan untuk mencari XPath elemen secara interaktif. |
+| **`web_dashboard.py`** | 🖥️ **Web UI:** Dashboard berbasis Flask untuk mengelola antrean dan profil secara visual. |
+| **`fb_uploader_scheduled.py`** | 📅 **Advanced Uploader:** Mesin utama dengan fitur penjadwalan, progress bar, dan pratinjau interaktif. |
+| **`fb_uploader.py`** | ⚙️ **Standard Engine:** Skrip uploader versi standar untuk posting manual/auto. |
+| **`fb_uploader_mobile.py`** | 📱 **Mobile Edition:** Menggunakan `m.facebook.com` dan injeksi cookies (Sangat ringan & bisa Headless). |
+| **`fb_login.py`** | 🔑 **Login Helper:** Digunakan untuk login pertama kali dan mengelola profil browser. |
+| **`utils.py`** | 🛠️ **Core Utils:** Konfigurasi driver, deteksi IP LAN, dan fungsi pembersihan. |
 | **`config.json`** | 📋 **Configuration:** Menyimpan pemetaan path folder konten untuk setiap profil. |
-| **`fb_profiles/`** | 👤 **User Data:** Tempat menyimpan data sesi/browser Chrome per akun (Jangan dihapus). |
-| **`Cookies/`** | 🍪 **JSON Cookies:** Hasil ekstrak cookie dari `fb_login.py` (sebagai backup). |
+| **`fb_profiles/`** | 👤 **User Data:** Penyimpanan sesi browser per akun (Jangan dihapus). |
 
 ---
 
@@ -47,46 +51,12 @@ pkg install python chromium chromedriver x11-repo tur-repo
 pkg install termux-x11-nightly # Jika menggunakan VNC/X11
 ```
 
-### 2. Klon Repositori
+### 2. Klon Repositori & Install Dependensi
 ```bash
 git clone https://github.com/aminmaskur88/AutoPostFbSelenium.git
 cd AutoPostFbSelenium
+pip install selenium flask pillow
 ```
-
-### 3. Instal Dependensi
-```bash
-pip install selenium
-```
-
----
-
-## 🎨 Panduan Grafis (VNC Server) di Termux
-
-Karena Selenium membutuhkan tampilan browser untuk proses tertentu (seperti login), Anda harus menggunakan VNC Server:
-
-### 🛠️ Persiapan Awal (Sekali Saja)
-1.  **Instal Dependencies:**
-    ```bash
-    pkg update && pkg upgrade
-    pkg install x11-repo
-    pkg install chromium chromedriver tigervnc fluxbox
-    ```
-2.  **Instal Aplikasi Android:** Unduh dan instal **VNC Viewer** (oleh RealVNC) dari Play Store.
-
-### 🚀 Alur Kerja Sehari-hari (Workflow)
-Ikuti urutan ini setiap kali ingin menjalankan skrip:
-
-1.  **Nyalakan VNC Server:**
-    ```bash
-    vncserver -localhost :1 -geometry 1280x720
-    ```
-    *(Jika baru pertama kali, Anda akan diminta membuat password VNC, bebas minimal 6 karakter).*
-2.  **Hubungkan VNC Viewer:** Buka aplikasi VNC Viewer di HP, tambahkan koneksi baru ke alamat `127.0.0.1:5901`.
-3.  **Jalankan Skrip:** Kembali ke Termux, jalankan:
-    ```bash
-    python fb_uploader.py
-    ```
-4.  **Lihat Browser:** Pindah ke aplikasi VNC Viewer. Browser Chromium akan muncul di sana (dalam lingkungan desktop Fluxbox).
 
 ---
 
@@ -98,43 +68,66 @@ Jalankan `fb_login.py` untuk mendaftarkan akun baru:
 python fb_login.py
 ```
 *   Masukkan nama akun (misal: `AkunUtama`).
-*   Browser akan terbuka (di VNC), silakan login manual sampai masuk beranda.
-*   Tekan Enter di terminal jika sudah selesai. Sesi Anda akan tersimpan secara permanen.
+*   Browser akan terbuka (di VNC), silakan login manual sampai masuk beranda. Sesi Anda akan tersimpan secara otomatis.
 
-### 2️⃣ Menyiapkan Konten
-Buat folder konten di dalam direktori pilihan Anda. Setiap folder postingan harus berisi:
-*   1 file media (Foto `.jpg`/`.png` atau Video `.mp4`).
-*   1 file `post_meta.json` dengan format:
-```json
-{
-    "post_title": "Judul Keren",
-    "summary": "Deskripsi postingan di sini...",
-    "cta": "Klik link di bio!",
-    "hashtags": ["#viral", "#facebook", "#otomatis"]
-}
-```
-
-### 3️⃣ Menjalankan Uploader (Desktop Version)
-Jalankan skrip utama `fb_uploader.py` untuk mode desktop:
+### 2️⃣ Menggunakan Web Dashboard (Opsional tapi Direkomendasikan)
+Dashboard memudahkan Anda mengatur urutan postingan sebelum dijalankan:
 ```bash
-python fb_uploader.py
+python web_dashboard.py
 ```
-*   **Menu 2:** Atur folder sumber konten untuk profil Anda (Lakukan ini sekali saja).
-*   **Menu 1:** Pilih profil, lalu pilih **Auto All** untuk mengunggah semua folder secara berurutan dengan interval.
+*   Buka URL yang muncul di terminal (misal: `http://192.168.1.5:5000`).
+*   Pilih profil dan folder konten. Anda bisa **Drag & Drop** kotak postingan untuk mengubah urutan.
 
-### 4️⃣ Alternatif Mobile/Headless (Lebih Ringan)
-Jika Anda tidak ingin repot menggunakan VNC atau sekadar ingin proses berjalan diam-diam (siluman) di latar belakang Termux, gunakan **`fb_uploader_mobile.py`**:
+### 3️⃣ Menjalankan Scheduled Uploader (Utama)
+Ini adalah skrip paling canggih untuk proses posting otomatis:
+```bash
+python fb_uploader_scheduled.py
+```
+*   **Fitur:** Progress bar "Sticky Footer", pilihan penjadwalan, dan **Interactive Web Preview** (Anda bisa edit caption/waktu sebelum benar-benar di-upload).
+
+### 4️⃣ Alternatif Mobile/Headless (Ringan)
+Gunakan jika Anda ingin proses berjalan di latar belakang tanpa VNC:
 ```bash
 python fb_uploader_mobile.py
 ```
-*   Letakkan file cookie `.json` dari ekstensi browser (seperti EditThisCookie) ke dalam folder `Cookies/`. Skrip akan **otomatis mendeteksi** akun Anda.
-*   Gunakan **Menu 2** untuk memasukkan path lokasi folder konten Anda.
-*   Pilih **Menu 1** untuk mulai mengunggah dengan simulasi tangguh (*brutal injection*) via tampilan mobile Facebook (`m.facebook.com`).
+*   Letakkan file cookie `.json` ke dalam folder `Cookies/`.
+*   Skrip akan berjalan via tampilan mobile Facebook (`m.facebook.com`).
 
 ---
 
-## 🤖 Special Thanks
+## 🎨 Panduan Grafis (VNC Server) di Termux
+
+Jika menggunakan mode GUI (VNC), ikuti langkah ini:
+
+1.  **Nyalakan VNC Server:** `vncserver -localhost :1 -geometry 1280x720`
+2.  **Hubungkan VNC Viewer:** Buka aplikasi VNC Viewer di HP, arahkan ke `127.0.0.1:5901`.
+3.  **Jalankan Skrip:** Kembali ke Termux dan jalankan uploader pilihan Anda.
+
+---
+
+## 🛠️ Command Line Arguments (Automasi)
+
+`fb_uploader_scheduled.py` mendukung argumen untuk automasi script lain:
+```bash
+python fb_uploader_scheduled.py --profile "Akun1" --path "/sdcard/konten" --limit 5 --headless
+```
+
+---
+
+## 🛠️ Developer & Debugging Tools
+
+Beberapa skrip pembantu untuk kebutuhan pengembangan atau perbaikan:
+
+| File | Fungsi |
+| :--- | :--- |
+| **`get_xpath.py`** | Membantu mencari XPath elemen secara interaktif jika struktur web Facebook berubah. |
+| **`record_fb_coords.py`** | Mencatat koordinat klik untuk optimasi elemen yang sulit dijangkau Selenium standar. |
+| **`open_browser.py`** | Membuka browser dengan profil tertentu tanpa menjalankan uploader (untuk cek manual). |
+
+---
+
+## 🤖 Kontribusi & Ucapan Terima Kasih
 Dikembangkan dengan bantuan kecerdasan buatan:
-*   **Gemini AI (Google)** - Optimasi logika Selenium, sistem pembersihan profil, dan penyusunan dokumentasi profesional ini.
+*   **Gemini AI (Google)** - Arsitektur sistem, optimasi logika Selenium, dan penyusunan dokumentasi.
 
 **License:** MIT | **Author:** Amin Maskur

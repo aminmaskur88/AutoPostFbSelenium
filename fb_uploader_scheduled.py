@@ -27,6 +27,8 @@ def reset_scroll_region():
     """Mengembalikan terminal ke mode normal."""
     sys.stdout.write("\033[r") # Reset scroll region
     sys.stdout.write("\033[?25h") # Show cursor
+    # Pindah ke baris baru agar tidak menimpa footer terakhir
+    sys.stdout.write("\n")
     sys.stdout.flush()
 
 def setup_sticky_footer():
@@ -725,6 +727,7 @@ def run_album_post_mode(args=None):
                 if input("[?] Lanjut? (y/n): ").lower() != 'y': break
         
         print_progress_bar(len(pending_items), len(pending_items))
+        reset_scroll_region()
         print("✅ SEMUA POSTINGAN BERHASIL DIPROSES.")
     finally: driver.quit()
 
@@ -873,11 +876,24 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                     print("\n    [+] Indikator progress hilang, upload selesai.")
                     break
                 
-                # Fallback: Cek jika tombol 'Berikutnya'/'Next' sudah muncul dan aktif
-                if not found_percent and time.time() - start_wait > 5:
-                    check_next = driver.find_elements(By.XPATH, "//div[@role='dialog']//div[@aria-label='Berikutnya' or @aria-label='Next' or @aria-label='Selesai' or @aria-label='Done']")
-                    if any(b.is_displayed() for b in check_next):
-                        print("\n    [+] Tombol navigasi terdeteksi, upload selesai.")
+                # Fallback: Cek jika tombol 'Berikutnya'/'Next' atau 'Kirim'/'Post' sudah muncul dan aktif
+                if time.time() - start_wait > 5:
+                    check_btn_xpath = (
+                        "//div[@role='dialog']//div[@aria-label='Berikutnya' or @aria-label='Next' or @aria-label='Selesai' or @aria-label='Done']"
+                        "| //div[@role='dialog']//div[@role='button'][.//span[text()='Kirim' or text()='Posting' or text()='Post']]"
+                        "| //div[@role='dialog']//div[@aria-label='Kirim' or @aria-label='Posting' or @aria-label='Post']"
+                    )
+                    check_btns = driver.find_elements(By.XPATH, check_btn_xpath)
+                    
+                    btn_ready = False
+                    for b in check_btns:
+                        if b.is_displayed():
+                            if b.get_attribute("aria-disabled") != "true":
+                                btn_ready = True
+                                break
+                                
+                    if btn_ready:
+                        print("\n    [+] Tombol navigasi/post terdeteksi aktif, upload selesai.")
                         break
             except: pass
             time.sleep(2)
@@ -1055,6 +1071,7 @@ def run_draft_mode():
                 del drafts[sel_path]
                 save_drafts(drafts)
                 print_progress_bar(1, 1)
+                reset_scroll_region()
                 print("✅ DRAF BERHASIL DIPOSTING.")
         finally: driver.quit()
     elif opt == '2':
@@ -1327,5 +1344,6 @@ if __name__ == "__main__":
                 if input("[?] Lanjut? (y/n): ").lower() != 'y': break
         
         print_progress_bar(len(pending_items), len(pending_items))
+        reset_scroll_region()
         print("✅ PROSES CLI SELESAI.")
     finally: driver.quit()
