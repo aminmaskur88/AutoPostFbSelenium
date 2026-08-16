@@ -1368,6 +1368,12 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                 post_num = (dashboard.current_idx + 1) if dashboard else "?"
                 error_msg = f"Postingan ke-{post_num} dibatalkan karena lebih dari 28 hari ke depan."
                 update_post_status(post_path, f"Gagal: {error_msg}", 0)
+                
+                already_shown = False
+                if dashboard:
+                    already_shown = getattr(dashboard, '_has_shown_limit_warning', False)
+                    dashboard._has_shown_limit_warning = True
+                    
                 if dashboard:
                     dashboard.current_job["upload"] = "Failed"
                     dashboard.current_job["caption"] = "Failed"
@@ -1378,7 +1384,9 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                     dashboard.render()
                 else:
                     print(f"    {TAG_ERROR} {error_msg}")
-                time.sleep(3)
+                    
+                if not already_shown:
+                    time.sleep(3)
                 return False
         except Exception as ex:
             pass
