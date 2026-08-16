@@ -10,6 +10,8 @@ import socketserver
 import base64
 import webbrowser
 import atexit
+import html
+import shutil
 from functools import partial
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -21,58 +23,117 @@ from selenium.webdriver.common.action_chains import ActionChains
 from utils import setup_driver, cleanup_profile
 from fb_uploader import manual_fallback
 
+# --- TERMINAL COLOR & STYLING UTILS ---
+CLR_RESET = "\033[0m"
+CLR_BOLD = "\033[1m"
+CLR_DIM = "\033[2m"
+CLR_UNDERLINE = "\033[4m"
+
+CLR_RED = "\033[91m"
+CLR_GREEN = "\033[92m"
+CLR_YELLOW = "\033[93m"
+CLR_BLUE = "\033[94m"
+CLR_MAGENTA = "\033[95m"
+CLR_CYAN = "\033[96m"
+CLR_WHITE = "\033[97m"
+
+TAG_INFO = f"{CLR_CYAN}[i]{CLR_RESET}"
+TAG_SUCCESS = f"{CLR_GREEN}[✓]{CLR_RESET}"
+TAG_WARNING = f"{CLR_YELLOW}[!]{CLR_RESET}"
+TAG_ERROR = f"{CLR_RED}[✗]{CLR_RESET}"
+TAG_INPUT = f"{CLR_MAGENTA}➜{CLR_RESET}"
+
+def print_header(title):
+    print(f"\n{CLR_BOLD}{CLR_WHITE}=== {title} ==={CLR_RESET}\n")
+
+def print_menu_box(title, items):
+    print(f"\n{CLR_BOLD}{CLR_WHITE}=== {title} ==={CLR_RESET}")
+    for item in items:
+        print(f"  {CLR_CYAN}{item}{CLR_RESET}")
+    print()
+
 # --- UTILS UNTUK STICKY FOOTER ---
 
 def reset_scroll_region():
     """Mengembalikan terminal ke mode normal."""
-    sys.stdout.write("\033[r") # Reset scroll region
-    sys.stdout.write("\033[?25h") # Show cursor
-    # Pindah ke baris baru agar tidak menimpa footer terakhir
-    sys.stdout.write("\n")
-    sys.stdout.flush()
+    # Dinonaktifkan untuk mencegah pembersihan layar / pergeseran kursor
+    pass
 
 def setup_sticky_footer():
     """Menyiapkan terminal untuk sticky footer di baris terakhir."""
-    try:
-        rows, _ = os.get_terminal_size()
-        # Set scroll region: Baris 1 sampai (rows-1)
-        sys.stdout.write(f"\033[1;{rows-1}r")
-        sys.stdout.flush()
-        atexit.register(reset_scroll_region)
-    except: pass
+    # Dinonaktifkan agar tidak membagi wilayah layar terminal
+    pass
 
 def print_progress_bar(current, total):
-    """Menampilkan progress bar di baris paling bawah (Sticky Footer)."""
+    """Menampilkan progress bar secara inline tanpa escape code pembagi layar."""
     try:
-        rows, cols = os.get_terminal_size()
+        _, cols = os.get_terminal_size()
     except:
-        rows, cols = 24, 80
+        cols = 80
         
-    percent = (current / total) * 100
-    # Sesuaikan panjang bar dengan lebar terminal
-    bar_len = min(cols - 30, 40)
+    if total == 0:
+        percent = 0.0
+        filled_len = 0
+    else:
+        percent = (current / total) * 100
+        bar_len = min(cols - 35, 40)
+        if bar_len < 10: bar_len = 10
+        filled_len = int(bar_len * current // total)
+        
+    bar_len = min(cols - 35, 40)
     if bar_len < 10: bar_len = 10
-    
-    filled_len = int(bar_len * current // total)
     bar = '█' * filled_len + '░' * (bar_len - filled_len)
     
     # Progress text (Hijau)
-    bar_text = f"\033[92m SESI: [{bar}] {current}/{total} ({percent:.1f}%)\033[0m"
-    
-    # Simpan posisi kursor, pindah ke baris terakhir, hapus baris, cetak bar, kembalikan kursor
-    sys.stdout.write("\033[s") # Save cursor
-    sys.stdout.write(f"\033[{rows};1H") # Move to last line
-    sys.stdout.write("\033[K") # Clear line
-    sys.stdout.write(bar_text)
-    sys.stdout.write("\033[u") # Restore cursor
-    sys.stdout.flush()
+    bar_text = f"{CLR_GREEN}⚡ [PROGRESS UPLOAD] : [{bar}] {current}/{total} ({percent:.1f}%){CLR_RESET}"
+    print(f"\n{bar_text}\n")
 
 # --- FUNGSI PREVIEW INTERAKTIF (Ala auto_poster_album.py) ---
 
+def get_template_paths():
+    search_paths = [
+        Path(__file__).resolve().parent,
+        Path("/storage/emulated/0/ProjectKURKUR"),
+        Path(os.getcwd())
+    ]
+    templates = []
+    seen = set()
+    for p in search_paths:
+        if p.exists():
+            for f in p.glob("bersambung*"):
+                if f.is_file() and f.suffix.lower() in ['.jpg', '.jpeg', '.png'] and f.name not in seen:
+                    templates.append(f)
+                    seen.add(f.name)
+    return sorted(templates)
+
+def load_photo_captions(item_path):
+    captions_data = {}
+    if os.path.isfile(item_path):
+        return captions_data
+    manifest_path = os.path.join(item_path, "content_manifest.json")
+    if not os.path.exists(manifest_path):
+        return captions_data
+
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+        
+        for filename, data in manifest.items():
+            if isinstance(data, dict):
+                captions_data[filename] = {
+                    "description": data.get("description", "").strip(),
+                    "description2": data.get("description2", "").strip()
+                }
+        return captions_data
+    except Exception as e:
+        print(f"[!] Gagal membaca content_manifest.json di {os.path.basename(item_path)}: {e}")
+        return {}
+
 class AlbumPreviewState:
-    def __init__(self, pending_items, item_data_map):
+    def __init__(self, pending_items, item_data_map, templates=None):
         self.pending_items = pending_items # List of paths
-        self.item_data_map = item_data_map # Path -> {caption, media_files, schedule_time}
+        self.item_data_map = item_data_map # Path -> {caption, media_files, schedule_time, photo_captions}
+        self.templates = templates or []
         self.lock = threading.Lock()
         self.server_should_shutdown = False
 
@@ -84,13 +145,19 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return # Silent logs
 
+    def handle(self):
+        try:
+            super().handle()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+
     def do_GET(self):
         if self.path == '/':
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
-            html = self.generate_html()
-            self.wfile.write(html.encode('utf-8'))
+            html_content = self.generate_html()
+            self.wfile.write(html_content.encode('utf-8'))
         elif self.path.startswith('/media/'):
             # Path format: /media/<index>/<filename>
             parts = self.path.split('/')
@@ -183,16 +250,77 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                     return
             self.send_response(200)
             self.end_headers()
+        elif self.path == '/edit_photo_caption':
+            with self.state.lock:
+                idx = data['index']
+                photo_name = data['photo_name']
+                new_caption = data['caption']
+                item_path = self.state.pending_items[idx]
+                
+                if 'photo_captions' not in self.state.item_data_map[item_path]:
+                    self.state.item_data_map[item_path]['photo_captions'] = {}
+                    
+                if photo_name in self.state.item_data_map[item_path]['photo_captions']:
+                    self.state.item_data_map[item_path]['photo_captions'][photo_name]['description2'] = new_caption
+                else:
+                    self.state.item_data_map[item_path]['photo_captions'][photo_name] = {'description': '', 'description2': new_caption}
+            self.send_response(200)
+            self.end_headers()
+        elif self.path == '/add_connector':
+            with self.state.lock:
+                idx = data['index']
+                template_name = data['template_name']
+                
+                template_path = next((p for p in self.state.templates if p.name == template_name), None)
+                item_path = self.state.pending_items[idx]
+                
+                if template_path and os.path.exists(item_path):
+                    try:
+                        timestamp = int(time.time() * 1000)
+                        ext = template_path.suffix
+                        new_filename = f"connector_{timestamp}{ext}"
+                        
+                        # Tentukan target directory
+                        target_dir = item_path if os.path.isdir(item_path) else os.path.dirname(item_path)
+                        new_path = os.path.join(target_dir, new_filename)
+                        
+                        shutil.copyfile(str(template_path), new_path)
+                        
+                        self.state.item_data_map[item_path]['media_files'].append(new_path)
+                        
+                        if 'photo_captions' not in self.state.item_data_map[item_path]:
+                            self.state.item_data_map[item_path]['photo_captions'] = {}
+                        self.state.item_data_map[item_path]['photo_captions'][new_filename] = {'description': '', 'description2': ''}
+                    except Exception as e:
+                        print(f"[!] Error adding connector: {e}")
+                        self.send_response(500)
+                        self.end_headers()
+                        return
+            self.send_response(200)
+            self.end_headers()
+        elif self.path == '/reorder_photos':
+            with self.state.lock:
+                idx = data['index']
+                new_order_filenames = data['photo_order'] # List of filenames
+                item_path = self.state.pending_items[idx]
+                
+                current_photos = self.state.item_data_map[item_path]['media_files']
+                photo_map = {os.path.basename(p): p for p in current_photos}
+                new_photo_list = [photo_map[name] for name in new_order_filenames if name in photo_map]
+                self.state.item_data_map[item_path]['media_files'] = new_photo_list
+            self.send_response(200)
+            self.end_headers()
 
     def generate_html(self):
         items_html = ""
         for i, path in enumerate(self.state.pending_items):
             data = self.state.item_data_map[path]
             name = os.path.basename(path)
+            photo_captions_for_item = data.get('photo_captions', {})
             
             # Media Grid
             images_html = ""
-            for m_idx, media_path in enumerate(data['media_files']):
+            for media_path in data['media_files']:
                 m_filename = os.path.basename(media_path)
                 ext = os.path.splitext(m_filename)[1].lower()
                 is_video = ext in ['.mp4', '.mov', '.avi']
@@ -203,11 +331,66 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     media_tag = f'<img src="{media_url}">'
                 
+                caption_data = photo_captions_for_item.get(m_filename, {'description': '', 'description2': ''})
+                desc2 = caption_data.get('description2', '')
+                desc1 = caption_data.get('description', '')
+
+                photo_card_content = ''
+                if desc2:
+                    photo_card_content = f'''
+                        <p class="photo-description" id="caption-{i}-{m_filename}">{html.escape(desc2)}</p>
+                        <button class="edit-button" onclick="togglePhotoEdit(this, {i}, \'{m_filename}\')">Edit Caption</button>
+                    '''
+                elif desc1:
+                    photo_card_content = f'''
+                        <div class="caption-choice-container" id="choice-container-{i}-{m_filename}">
+                            <p class="choice-prompt">Caption kosong. Pilih aksi:</p>
+                            <select class="caption-choice-select" onchange="handleCaptionChoice(this, {i}, \'{m_filename}\', \'{html.escape(desc1)}\')">
+                                <option value="use_desc">Gunakan 'description'</option>
+                                <option value="empty" selected>Biarkan Kosong</option>
+                            </select>
+                            <p class="fallback-preview"><b>Preview:</b> {html.escape(desc1)}</p>
+                        </div>
+                        <p class="photo-description" id="caption-{i}-{m_filename}" style="display:none;"></p>
+                        <button class="edit-button" onclick="togglePhotoEdit(this, {i}, \'{m_filename}\')" style="display:none;">Edit Caption</button>
+                    '''
+                else:
+                    photo_card_content = f'''
+                        <p class="photo-description" id="caption-{i}-{m_filename}"></p>
+                        <button class="edit-button" onclick="togglePhotoEdit(this, {i}, \'{m_filename}\')">Edit Caption</button>
+                    '''
+
                 images_html += f"""
-                <div class="photo-card" id="photo-{i}-{m_filename}">
+                <div class="photo-card" id="photo-{i}-{m_filename}" data-filename="{m_filename}">
                     {media_tag}
+                    <div class="photo-info">
+                        <p class="photo-filename">{m_filename}</p>
+                        {photo_card_content}
+                    </div>
                     <button class="delete-photo-btn" onclick="deletePhoto({i}, '{m_filename}')">×</button>
                 </div>"""
+
+            templates_html = ""
+            if self.state.templates:
+                template_opts = ""
+                for t in self.state.templates:
+                    try:
+                        with open(t, "rb") as f:
+                            t_b64 = base64.b64encode(f.read()).decode("utf-8")
+                        t_src = f"data:image/{t.suffix[1:]};base64,{t_b64}"
+                        template_opts += f'''
+                        <div class="template-item" onclick="addConnector({i}, '{t.name}')">
+                            <img src="{t_src}">
+                            <span>{t.name}</span>
+                        </div>'''
+                    except: pass
+                
+                if template_opts:
+                    templates_html = f'''
+                    <div class="connector-container">
+                        <p class="connector-label">Tambahkan Gambar Penyambung:</p>
+                        <div class="template-list">{template_opts}</div>
+                    </div>'''
 
             items_html += f"""
             <div class="item-card" data-index="{i}">
@@ -230,6 +413,7 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                         <p>Tambah</p>
                     </div>
                 </div>
+                {templates_html}
             </div>
             """
 
@@ -243,7 +427,7 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
             <style>
                 body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #f0f2f5; color: #1c1e21; }}
                 .header {{ background: #1877f2; color: white; padding: 15px; text-align: center; position: sticky; top: 0; z-index: 1000; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-                .container {{ max-width: 800px; margin: 20px auto; padding: 0 15px; padding-bottom: 100px; }}
+                .container {{ max-width: 900px; margin: 20px auto; padding: 0 15px; padding-bottom: 100px; }}
                 
                 .item-card {{ background: white; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.2); overflow: hidden; border: 1px solid #ddd; }}
                 .album-header {{ padding: 12px; border-bottom: 1px solid #ebedf0; display: flex; align-items: center; gap: 12px; background: #fafafa; }}
@@ -256,31 +440,48 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                 textarea {{ width: 100%; box-sizing: border-box; border: 1px solid #ddd; border-radius: 6px; padding: 10px; font-family: inherit; font-size: 14px; min-height: 100px; resize: vertical; background: #f5f6f7; transition: border-color 0.2s; }}
                 textarea:focus {{ outline: none; border-color: #1877f2; background: white; }}
                 
-                .photos-container {{ display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; background: #f0f2f5; border-top: 1px solid #ebedf0; }}
-                .photo-card {{ width: calc(25% - 6px); aspect-ratio: 1/1; position: relative; border-radius: 4px; overflow: hidden; background: #000; }}
-                .photo-card img {{ width: 100%; height: 100%; object-fit: cover; }}
+                .photos-container {{ display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; background: #f0f2f5; border-top: 1px solid #ebedf0; align-items: flex-start; }}
                 
-                .delete-photo-btn {{ position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; }}
+                .photo-card {{ width: 180px; position: relative; border: 1px solid #ddd; border-radius: 6px; overflow: hidden; background: #fff; display: flex; flex-direction: column; cursor: grab; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }}
+                .photo-card img {{ width: 100%; height: 180px; object-fit: contain; background: #000; display: block; }}
+                .photo-info {{ padding: 8px; font-size: 12px; }}
+                .photo-filename {{ font-weight: bold; font-size: 11px; margin: 0 0 5px 0; word-wrap: break-word; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+                .photo-description {{ font-size: 11px; color: #333; margin: 5px 0 0 0; white-space: pre-wrap; word-wrap: break-word; background: #f0f2f5; padding: 4px; border-radius: 4px; border-left: 2px solid #1877f2; }}
+                
+                .edit-button {{ background: #e4e6eb; color: #050505; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 11px; font-weight: bold; margin-top: 5px; width: 100%; text-align: center; }}
+                .edit-button:hover {{ background: #d8dadf; }}
+                .choice-prompt {{ font-weight: bold; font-size: 10px; margin: 5px 0; color: #606770; }}
+                .caption-choice-select {{ width: 100%; padding: 4px; border-radius: 4px; margin-bottom: 5px; font-size: 11px; }}
+                .fallback-preview {{ font-size: 10px; color: #555; margin: 0; padding: 4px; background: #f0f0f0; border-radius: 4px; word-wrap: break-word; }}
+
+                .delete-photo-btn {{ position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; width: 22px; height: 22px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; z-index: 10; }}
                 .delete-photo-btn:hover {{ background: #f02849; }}
 
-                .add-photo-card {{ width: calc(25% - 6px); aspect-ratio: 1/1; border: 2px dashed #ccd0d5; border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; color: #606770; background: #f5f6f7; }}
+                .add-photo-card {{ width: 180px; height: 260px; border: 2px dashed #ccd0d5; border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; color: #606770; background: #f5f6f7; box-sizing: border-box; }}
                 .add-photo-card:hover {{ background: #ebedf0; border-color: #1877f2; color: #1877f2; }}
-                .add-photo-card span {{ font-size: 24px; font-weight: bold; }}
-                .add-photo-card p {{ margin: 0; font-size: 11px; font-weight: bold; }}
+                .add-photo-card span {{ font-size: 32px; font-weight: bold; line-height: 1; }}
+                .add-photo-card p {{ margin: 5px 0 0 0; font-size: 12px; font-weight: bold; }}
 
-                .video-thumb {{ position: relative; width: 100%; height: 100%; }}
-                .play-icon {{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; background: rgba(0,0,0,0.5); border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 14px; border: 2px solid white; }}
+                .video-thumb {{ position: relative; width: 100%; height: 180px; background: #000; }}
+                .video-thumb img {{ width: 100%; height: 100%; object-fit: contain; }}
+                .play-icon {{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; background: rgba(0,0,0,0.5); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 18px; border: 2px solid white; }}
                 
                 .btn-delete {{ background: #f02849; color: white; border: none; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: bold; }}
                 .btn-delete:hover {{ background: #d22846; }}
                 
+                .connector-container {{ padding: 0 12px 12px 12px; border-top: 1px solid #ebedf0; background: #fafafa; }}
+                .connector-label {{ font-weight: bold; margin: 10px 0 5px; font-size: 13px; color: #606770; }}
+                .template-list {{ display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }}
+                .template-item {{ border: 1px solid #ddd; border-radius: 4px; padding: 4px; background: white; cursor: pointer; text-align: center; width: 80px; flex-shrink: 0; transition: all 0.2s; }}
+                .template-item:hover {{ border-color: #1877f2; background: #e7f3ff; }}
+                .template-item img {{ width: 100%; height: 60px; object-fit: cover; border-radius: 2px; display: block; margin-bottom: 4px; }}
+                .template-item span {{ font-size: 9px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: bold; }}
+
                 .footer-actions {{ position: fixed; bottom: 0; left: 0; right: 0; background: white; padding: 15px; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); display: flex; justify-content: center; z-index: 1000; }}
                 .btn-start {{ background: #42b72a; color: white; border: none; padding: 12px 40px; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; }}
                 .btn-start:hover {{ background: #36a420; }}
                 
-                @media (max-width: 600px) {{
-                    .photo-card, .add-photo-card {{ width: calc(33.33% - 6px); }}
-                }}
+                .sortable-ghost {{ opacity: 0.4; background: #c8ebfb; }}
             </style>
         </head>
         <body>
@@ -297,29 +498,56 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
             </div>
 
             <script>
-                const container = document.getElementById('items-container');
-                new Sortable(container, {{
-                    handle: '.handle',
-                    animation: 150,
-                    onEnd: function() {{
-                        const order = Array.from(container.querySelectorAll('.item-card')).map(el => el.dataset.index);
-                        fetch('/reorder', {{ method: 'POST', body: JSON.stringify({{ order }}) }});
-                    }}
-                }});
+                function postAction(path, body) {{
+                    return fetch(path, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify(body) }});
+                }}
+
+                function initSortable() {{
+                    // Sort items (albums)
+                    const container = document.getElementById('items-container');
+                    new Sortable(container, {{
+                        handle: '.handle',
+                        animation: 150,
+                        onEnd: function() {{
+                            const order = Array.from(container.querySelectorAll('.item-card')).map(el => el.dataset.index);
+                            postAction('/reorder', {{ order }});
+                        }}
+                    }});
+
+                    // Sort photos inside each album
+                    document.querySelectorAll('.photos-container').forEach(container => {{
+                        if (container.sortableInstance) {{
+                            container.sortableInstance.destroy();
+                        }}
+                        const itemIndex = container.id.replace('photos-container-', '');
+                        container.sortableInstance = new Sortable(container, {{
+                            animation: 150,
+                            ghostClass: 'sortable-ghost',
+                            filter: '.add-photo-card',
+                            preventOnFilter: true,
+                            onEnd: function (evt) {{
+                                const newOrder = Array.from(evt.to.querySelectorAll('.photo-card')).map(card => card.dataset.filename);
+                                postAction('/reorder_photos', {{ index: parseInt(itemIndex), photo_order: newOrder }});
+                            }}
+                        }});
+                    }});
+                }}
+
+                document.addEventListener('DOMContentLoaded', initSortable);
 
                 function editCaption(index, caption) {{
-                    fetch('/edit_caption', {{ method: 'POST', body: JSON.stringify({{ index, caption }}) }});
+                    postAction('/edit_caption', {{ index, caption }});
                 }}
 
                 function deleteItem(index) {{
                     if(confirm('Hapus postingan ini dari antrean?')) {{
-                        fetch('/delete_item', {{ method: 'POST', body: JSON.stringify({{ index }}) }}).then(() => location.reload());
+                        postAction('/delete_item', {{ index }}).then(() => location.reload());
                     }}
                 }}
 
                 function deletePhoto(index, filename) {{
                     if(confirm('Hapus media ini?')) {{
-                        fetch('/delete_photo', {{ method: 'POST', body: JSON.stringify({{ index, filename }}) }})
+                        postAction('/delete_photo', {{ index, filename }})
                         .then(r => {{
                             if(r.ok) document.getElementById(`photo-${{index}}-${{filename}}`).remove();
                         }});
@@ -334,13 +562,10 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                     for (const file of files) {{
                         const reader = new FileReader();
                         reader.onload = function(e) {{
-                            fetch('/add_photo', {{
-                                method: 'POST',
-                                body: JSON.stringify({{
-                                    index: index,
-                                    filename: file.name,
-                                    data: e.target.result
-                                }})
+                            postAction('/add_photo', {{
+                                index: index,
+                                filename: file.name,
+                                data: e.target.result
                             }}).then(r => {{
                                 if(r.ok) location.reload();
                                 else alert('Gagal menambah foto: ' + file.name);
@@ -350,9 +575,57 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                     }}
                 }}
 
+                function addConnector(index, templateName) {{
+                    postAction('/add_connector', {{ index: index, template_name: templateName }})
+                    .then(r => {{
+                        if (r.ok) location.reload();
+                        else alert('Gagal menambahkan connector');
+                    }});
+                }}
+
+                function togglePhotoEdit(btn, index, photoName) {{
+                    const el = document.getElementById('caption-' + index + '-' + photoName);
+                    if (btn.textContent === 'Edit Caption') {{
+                        el.contentEditable = true;
+                        el.focus();
+                        btn.textContent = 'Simpan';
+                    }} else {{
+                        el.contentEditable = false;
+                        btn.textContent = 'Edit Caption';
+                        postAction('/edit_photo_caption', {{
+                            index: index,
+                            photo_name: photoName,
+                            caption: el.innerText
+                        }});
+                    }}
+                }}
+
+                function handleCaptionChoice(selectElement, index, photoName, fallbackCaption) {{
+                    const choice = selectElement.value;
+                    let newCaption = '';
+                    if (choice === 'use_desc') {{
+                        newCaption = fallbackCaption;
+                    }}
+                    
+                    const choiceContainer = document.getElementById('choice-container-' + index + '-' + photoName);
+                    const descriptionEl = choiceContainer.nextElementSibling;
+                    const editButton = descriptionEl.nextElementSibling;
+
+                    descriptionEl.innerText = newCaption;
+                    choiceContainer.style.display = 'none';
+                    descriptionEl.style.display = 'block';
+                    editButton.style.display = 'inline-block';
+
+                    postAction('/edit_photo_caption', {{
+                        index: index,
+                        photo_name: photoName,
+                        caption: newCaption
+                    }});
+                }}
+
                 function startUpload() {{
                     if(confirm('Mulai proses upload Selenium?')) {{
-                        fetch('/shutdown', {{ method: 'POST', body: JSON.stringify({{}}) }}).then(() => {{
+                        postAction('/shutdown', {{}}).then(() => {{
                             document.body.innerHTML = `
                                 <div style="text-align:center; margin-top:100px; font-family:sans-serif;">
                                     <h2 style="color:#1877f2;">✅ Server Ditutup</h2>
@@ -366,16 +639,24 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
         </html>
         """
 
+class SilentTCPServer(socketserver.TCPServer):
+    def handle_error(self, request, client_address):
+        exc_type, _, _ = sys.exc_info()
+        if exc_type in (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
+        super().handle_error(request, client_address)
+
 def run_interactive_preview_web(pending_items, item_data_map):
-    state = AlbumPreviewState(list(pending_items), dict(item_data_map))
+    templates = get_template_paths()
+    state = AlbumPreviewState(list(pending_items), dict(item_data_map), templates=templates)
     PORT = 8080
     Handler = partial(AlbumPreviewRequestHandler, state)
-    socketserver.TCPServer.allow_reuse_address = True
+    SilentTCPServer.allow_reuse_address = True
     
     # Cari port kosong jika 8080 dipakai
     while True:
         try:
-            httpd = socketserver.TCPServer(('', PORT), Handler)
+            httpd = SilentTCPServer(('', PORT), Handler)
             break
         except: PORT += 1
 
@@ -405,17 +686,98 @@ def run_interactive_preview_web(pending_items, item_data_map):
     return state.pending_items, state.item_data_map
 
 def clear_screen():
+    try:
+        sys.stdout.write("\033[r")     # Reset scroll region ke default
+        sys.stdout.write("\033[?25h")   # Tampilkan kursor jika tersembunyi
+        sys.stdout.flush()
+    except:
+        pass
     os.system('cls' if os.name == 'nt' else 'clear')
+
+def getch():
+    import sys
+    try:
+        import tty
+        import termios
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+            if ch == '\x1b':
+                ch2 = sys.stdin.read(1)
+                if ch2 == '[':
+                    ch3 = sys.stdin.read(1)
+                    if ch3 == 'A':
+                        return 'up'
+                    elif ch3 == 'B':
+                        return 'down'
+                    else:
+                        return 'esc'
+                return 'esc'
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+    except Exception:
+        return sys.stdin.read(1)
+
+def select_menu_option(title, options, default_index=0):
+    import re
+    if not sys.stdin.isatty():
+        print(f"\n=== {title} ===")
+        for i, opt in enumerate(options):
+            print(f"  {opt}")
+        val = input(f"➜ Pilihan (1-{len(options)}): ").strip()
+        try:
+            for idx, opt in enumerate(options):
+                clean_opt = re.sub(r'\033\[[0-9;]*m', '', opt).strip()
+                if clean_opt.startswith(val):
+                    return idx
+            return int(val) - 1
+        except:
+            return default_index
+
+    selected = default_index
+    while True:
+        sys.stdout.write("\033[H\033[J")
+        print(f"=== {title} ===")
+        print()
+        for i, opt in enumerate(options):
+            clean_opt = re.sub(r'\033\[[0-9;]*m', '', opt).strip()
+            display_text = clean_opt
+            if re.match(r'^\d+\.\s*', clean_opt):
+                display_text = re.sub(r'^\d+\.\s*', '', clean_opt)
+                
+            if i == selected:
+                print(f"  {CLR_GREEN}❯ {CLR_BOLD}{display_text}{CLR_RESET}")
+            else:
+                print(f"    {CLR_DIM}{display_text}{CLR_RESET}")
+        print()
+        print(f"{CLR_DIM}➜ Gunakan [↑/↓] lalu [Enter], atau tekan angka (1-{len(options)}) langsung...{CLR_RESET}")
+        sys.stdout.flush()
+
+        ch = getch()
+        if ch == 'up':
+            selected = (selected - 1) % len(options)
+        elif ch == 'down':
+            selected = (selected + 1) % len(options)
+        elif ch in ['\r', '\n']:
+            return selected
+        elif ch.isdigit():
+            for idx, opt in enumerate(options):
+                clean_opt = re.sub(r'\033\[[0-9;]*m', '', opt).strip()
+                if clean_opt.startswith(ch):
+                    return idx
 
 def get_datetime_input(prompt: str):
     while True:
-        val = input(f"⏰ {prompt} (format: YYYY-MM-DD HH:MM atau ketik 'now'): ").strip().lower()
+        val = input(f"⏰ {CLR_BOLD}{prompt}{CLR_RESET}\n   (format: YYYY-MM-DD HH:MM atau ketik 'now'): ").strip().lower()
         if val in ['now', 'sekarang', 'y']:
             return 'now'
         try:
             return datetime.strptime(val, "%Y-%m-%d %H:%M")
         except ValueError:
-            print("❌ Format salah. Mohon ulangi.")
+            print(f"   {TAG_ERROR} Format salah. Mohon ulangi.")
 
 def load_drafts():
     path = os.path.join(os.getcwd(), "draft_posts.json")
@@ -542,17 +904,22 @@ def get_caption_text(post_path):
 
 def run_album_post_mode(args=None):
     clear_screen()
-    print("📚 Mode Postingan Album\n")
+    print_header("📚 MODE POSTINGAN ALBUM")
     
     profile_dir = os.path.join(os.getcwd(), "fb_profiles")
     profiles = sorted([d for d in os.listdir(profile_dir) if os.path.isdir(os.path.join(profile_dir, d))])
-    if not profiles: print("[!] Profil kosong."); return
+    if not profiles:
+        print(f"{TAG_ERROR} Profil browser kosong! Sila buat profil dahulu.")
+        return
 
-    for i, p in enumerate(profiles): print(f"{i+1}. {p}")
-    sel_profile = profiles[int(input("\nPilih Profil: "))-1]
+    profile_options = [f"{i+1}. {p}" for i, p in enumerate(profiles)]
+    sel_idx = select_menu_option("PILIH PROFIL FACEBOOK", profile_options)
+    sel_profile = profiles[sel_idx]
 
-    parent_folder = input("Masukkan Path Folder Utama: ").strip().replace('"', '').replace("'", "")
-    if not os.path.isdir(parent_folder): print("[!] Folder tidak valid!"); return
+    parent_folder = input(f"\n{TAG_INPUT} Masukkan Path Folder Utama: ").strip().replace('"', '').replace("'", "")
+    if not os.path.isdir(parent_folder):
+        print(f"{TAG_ERROR} Folder tidak valid!")
+        return
 
     # DETEKSI PENDING (Smarter Detection: Files and Folders as separate posts)
     all_items = sorted([os.path.join(parent_folder, f) for f in os.listdir(parent_folder)])
@@ -576,23 +943,31 @@ def run_album_post_mode(args=None):
             if not os.path.exists(item + ".uploadedfb"):
                 pending_items.append(item)
 
-    if not pending_items: print("[!] Tidak ada konten baru."); return
+    if not pending_items:
+        print(f"\n{TAG_WARNING} Tidak ada konten baru.")
+        return
     
     # ADVANCED SELECTION (Logic ala reference script)
-    print(f"\n✅ {len(pending_items)} album siap untuk diproses.")
-    print("--- Pilih Mode Unggahan ---")
-    print("1. Unggah Semua Album (sesuai urutan)")
-    print("2. Unggah Sejumlah Album Secara Acak")
-    print("3. Pilih Album Tertentu untuk Diunggah")
-    print("4. Unggah Satu Album Acak")
-    sel_mode = input("Pilih mode (1/2/3/4, default 1): ").strip()
+    print(f"\n{TAG_SUCCESS} Terdeteksi {CLR_BOLD}{CLR_GREEN}{len(pending_items)}{CLR_RESET} album/postingan siap diproses.")
+    
+    upload_modes = [
+        "1. Unggah Semua Album (sesuai urutan)",
+        "2. Unggah Sejumlah Album Secara Acak",
+        "3. Pilih Album Tertentu untuk Diunggah",
+        "4. Unggah Satu Album Acak"
+    ]
+    sel_mode_idx = select_menu_option("PILIH MODE UNGGAHAN", upload_modes)
+    sel_mode = str(sel_mode_idx + 1)
 
     if sel_mode == '2':
-        num_random = int(input(f"Berapa album acak (maks: {len(pending_items)})? ").strip())
-        pending_items = random.sample(pending_items, min(num_random, len(pending_items)))
+        try:
+            num_random = int(input(f"\n{TAG_INPUT} Berapa album acak (maks: {len(pending_items)})? ").strip())
+            pending_items = random.sample(pending_items, min(num_random, len(pending_items)))
+        except ValueError:
+            print(f"   {TAG_ERROR} Input tidak valid, menggunakan semua album.")
     elif sel_mode == '3':
-        for idx, p in enumerate(pending_items): print(f"{idx+1}. {os.path.basename(p)}")
-        choices = input("Masukkan nomor (pisahkan dengan koma, cth: 1,3,5): ").strip()
+        print_menu_box("PILIH ALBUM", [f"{idx+1}. {os.path.basename(p)}" for idx, p in enumerate(pending_items)])
+        choices = input(f"\n{TAG_INPUT} Masukkan nomor (pisahkan dengan koma, cth: 1,3,5): ").strip()
         indices = [int(i.strip()) - 1 for i in choices.split(',') if i.strip().isdigit()]
         pending_items = [pending_items[i] for i in indices if 0 <= i < len(pending_items)]
     elif sel_mode == '4':
@@ -608,17 +983,19 @@ def run_album_post_mode(args=None):
                 p_map = {os.path.basename(p): p for p in pending_items}
                 ordered = [p_map[name] for name in custom_order if name in p_map]
                 pending_items = ordered + [p for p in pending_items if p not in ordered]
-                print("[+] Menggunakan urutan Dashboard.")
+                print(f"{TAG_INFO} Menggunakan urutan Dashboard.")
             except: pass
 
     # STRATEGY
-    print("\nPilih strategi penjadwalan:")
-    print("1. Jadwalkan dengan Interval Jam (Otomatis)")
-    print("2. Jadwalkan dengan Interval Hari (Otomatis)")
-    print("3. Manual per Album (Tanya setiap album)")
-    print("4. Langsung Publish Semua")
-    print("5. Simpan Semua sebagai Draf Lokal")
-    choice = input("Pilihan: ").strip()
+    sched_options = [
+        "1. Jadwalkan dengan Interval Jam (Otomatis)",
+        "2. Jadwalkan dengan Interval Hari (Otomatis)",
+        "3. Manual per Album (Tanya setiap album)",
+        "4. Langsung Publish Semua",
+        "5. Simpan Semua sebagai Draf Lokal"
+    ]
+    choice_idx = select_menu_option("STRATEGI PENJADWALAN", sched_options)
+    choice = str(choice_idx + 1)
 
     is_post_now = (choice == '4')
     is_draft = (choice == '5')
@@ -630,19 +1007,28 @@ def run_album_post_mode(args=None):
         start_time_input = get_datetime_input("Masukkan waktu mulai untuk album PERTAMA")
         current_time_obj = datetime.now() + timedelta(minutes=11) if start_time_input == 'now' else start_time_input
         unit = "jam" if choice == '1' else "hari"
-        interval_val = int(input(f"Masukkan interval per album (dalam {unit}): ").strip())
-        interval_mins = interval_val * 60 if choice == '1' else interval_val * 1440
+        try:
+            interval_val = int(input(f"\n{TAG_INPUT} Masukkan interval per album (dalam {unit}): ").strip())
+            interval_mins = interval_val * 60 if choice == '1' else interval_val * 1440
+        except ValueError:
+            print(f"   {TAG_ERROR} Input tidak valid, menggunakan interval default 1 {unit}.")
+            interval_mins = 60 if choice == '1' else 1440
     elif choice == '3':
         interval_mins = 0
     elif choice == '4':
-        interval_mins = int(input("Jeda antar posting (menit) [Enter=0]: ") or 0)
+        try:
+            interval_mins = int(input(f"\n{TAG_INPUT} Jeda antar posting (menit) [Enter=0]: ") or 0)
+        except ValueError:
+            interval_mins = 0
 
-    is_headless = input("Gunakan Mode Headless (n VNC)? (y/n): ").lower() == 'y'
-    print("\n--- Pilihan Pratinjau ---")
-    print("1. Tanpa Pratinjau")
-    print("2. Pratinjau Terminal (Ringkas)")
-    print("3. Pratinjau Web Interaktif (Full - Bisa Edit/Urut)")
-    preview_choice = input("Pilih [1/2/3, default 1]: ").strip()
+    is_headless = input(f"\n{TAG_INPUT} Gunakan Mode Headless (n VNC)? (y/n, default n): ").lower() == 'y'
+    preview_options = [
+        "1. Tanpa Pratinjau",
+        "2. Pratinjau Terminal (Ringkas)",
+        "3. Pratinjau Web Interaktif (Full - Bisa Edit/Urut)"
+    ]
+    preview_idx = select_menu_option("PILIHAN PRATINJAU", preview_options)
+    preview_choice = str(preview_idx + 1)
     is_preview = (preview_choice == '2')
     is_web_preview = (preview_choice == '3')
 
@@ -662,7 +1048,8 @@ def run_album_post_mode(args=None):
         item_data_map[p] = {
             'caption': get_caption_text(p),
             'media_files': get_media_files(p),
-            'schedule_time': sched_str
+            'schedule_time': sched_str,
+            'photo_captions': load_photo_captions(p)
         }
 
     if is_web_preview:
@@ -675,14 +1062,17 @@ def run_album_post_mode(args=None):
             drafts[item] = item_data_map[item]
             drafts[item]['profile'] = sel_profile
         save_drafts(drafts)
-        print(f"✅ {len(pending_items)} postingan disimpan ke draf lokal.")
+        print(f"\n{TAG_SUCCESS} {CLR_BOLD}{CLR_GREEN}{len(pending_items)}{CLR_RESET} postingan disimpan ke draf lokal.")
         return
 
     # START SELENIUM
+    os.system('cls' if os.name == 'nt' else 'clear')
     setup_sticky_footer()
+    dashboard = UploadDashboard(pending_items, item_data_map)
     driver = setup_driver(os.path.join(os.getcwd(), "fb_profiles", sel_profile), headless=is_headless)
     try:
         for i, item in enumerate(pending_items):
+            dashboard.current_idx = i
             print_progress_bar(i, len(pending_items))
             data = item_data_map.get(item, {})
             media_files = data.get('media_files', [])
@@ -691,18 +1081,28 @@ def run_album_post_mode(args=None):
             
             # SPLITTING LOGIC (Logic ala reference script)
             if len(media_files) > 20:
-                print(f"\n⚠️  Folder '{os.path.basename(item)}' punya {len(media_files)} foto (lebih dari 20).")
-                print("1. Tetap upload semua sekaligus (mungkin gagal/lama).")
-                print("2. Upload Part 1 (20 foto), sisanya simpan sebagai Part Sisa.")
-                print("3. Upload sejumlah (n) foto, sisanya simpan sebagai Part Sisa.")
-                split_choice = input("Pilih opsi (1/2/3, default 2): ").strip() or '2'
+                print(f"\n{TAG_WARNING} Folder '{os.path.basename(item)}' punya {CLR_BOLD}{len(media_files)}{CLR_RESET} foto (lebih dari 20).")
+                split_options = [
+                    "1. Tetap upload semua sekaligus (mungkin gagal/lama).",
+                    "2. Upload Part 1 (20 foto), sisanya simpan sebagai Part Sisa.",
+                    "3. Upload sejumlah (n) foto, sisanya simpan sebagai Part Sisa."
+                ]
+                split_idx = select_menu_option(f"PILIH TINDAKAN FOTO > 20 ({len(media_files)} foto)", split_options)
+                split_choice = str(split_idx + 1)
                 
                 if split_choice in ['2', '3']:
-                    n = 20 if split_choice == '2' else int(input("Masukkan jumlah foto: "))
+                    try:
+                        n = 20 if split_choice == '2' else int(input(f"\n{TAG_INPUT} Masukkan jumlah foto: ").strip())
+                    except ValueError:
+                        n = 20
                     part1_files = media_files[:n]
+                    bersambung_path = "/storage/emulated/0/ProjectKURKUR/bersambung.jpg"
+                    if os.path.exists(bersambung_path):
+                        part1_files.append(bersambung_path)
+                        print(f"   {TAG_SUCCESS} Otomatis menambahkan bersambung.jpg ke akhir Part 1.")
                     part2_files = [os.path.basename(f) for f in media_files[n:]]
                     
-                    if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=part1_files):
+                    if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=part1_files, dashboard=dashboard):
                         pending = load_pending_parts()
                         p2_key = f"{os.path.basename(item)} (Part 2)"
                         pending[p2_key] = {
@@ -712,23 +1112,23 @@ def run_album_post_mode(args=None):
                             "profile": sel_profile
                         }
                         save_pending_parts(pending)
-                        print(f"✅ Part 1 Berhasil. Sisa {len(part2_files)} foto disimpan ke Part Sisa.")
+                        print(f"\n{TAG_SUCCESS} Part 1 Berhasil. Sisa {len(part2_files)} foto disimpan ke Part Sisa.")
                     continue
 
             if choice == '3':
                 res = get_datetime_input(f"Jadwal untuk {os.path.basename(item)}")
                 sched_str = None if res == 'now' else res.strftime("%Y-%m-%d %H:%M")
             
-            if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=media_files):
+            if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=media_files, dashboard=dashboard):
                 if not sched_str and interval_mins > 0 and item != pending_items[-1]:
-                    print(f"[*] Menunggu {interval_mins} menit...")
+                    print(f"   {TAG_INFO} Menunggu {interval_mins} menit...")
                     time.sleep(interval_mins * 60)
             else:
-                if input("[?] Lanjut? (y/n): ").lower() != 'y': break
+                if input(f"\n{TAG_INPUT} Lanjut? (y/n, default y): ").lower() == 'n': break
         
         print_progress_bar(len(pending_items), len(pending_items))
         reset_scroll_region()
-        print("✅ SEMUA POSTINGAN BERHASIL DIPROSES.")
+        print(f"\n{TAG_SUCCESS} {CLR_BOLD}{CLR_GREEN}SEMUA POSTINGAN BERHASIL DIPROSES.{CLR_RESET}")
     finally: driver.quit()
 
 def load_pending_parts():
@@ -747,33 +1147,32 @@ def save_pending_parts(data):
 
 def run_pending_parts_mode():
     clear_screen()
-    print("🔄 Lanjutkan Upload Part Sisa\n")
+    print_header("🔄 LANJUTKAN UPLOAD PART SISA")
     pending = load_pending_parts()
     if not pending:
-        print("[-] Tidak ada Part Sisa yang pending."); return
+        print(f"{TAG_WARNING} Tidak ada Part Sisa yang pending.")
+        return
 
     pending_list = list(pending.items())
-    for i, (key, data) in enumerate(pending_list):
-        print(f"{i+1}. {key} ({len(data['remaining_photos'])} foto)")
-    
-    choice = input("\nPilih nomor (atau 0 untuk batal): ").strip()
-    if not choice.isdigit() or int(choice) == 0: return
-    
-    idx = int(choice) - 1
-    if not (0 <= idx < len(pending_list)): return
+    pending_options = [f"{i+1}. {key} ({len(data['remaining_photos'])} foto)" for i, (key, data) in enumerate(pending_list)] + ["0. Batal"]
+    idx = select_menu_option("DAFTAR PART SISA PENDING", pending_options)
+    if idx == len(pending_list): # "0. Batal"
+        return
     
     sel_key, sel_data = pending_list[idx]
     
     # Logic to upload remaining photos (similar to run_album_post_mode but simplified)
     profile = sel_data.get('profile', 'Default')
-    print(f"[*] Melanjutkan '{sel_key}' menggunakan profil '{profile}'...")
+    print(f"\n{TAG_INFO} Melanjutkan '{CLR_BOLD}{sel_key}{CLR_RESET}' menggunakan profil '{CLR_BOLD}{profile}{CLR_RESET}'...")
     
-    is_headless = input("Gunakan Mode Headless (n VNC)? (y/n): ").lower() == 'y'
+    is_headless = input(f"\n{TAG_INPUT} Gunakan Mode Headless (n VNC)? (y/n, default n): ").lower() == 'y'
+    res = get_datetime_input("Jadwal")
+    sched_str = None if res == 'now' else res.strftime("%Y-%m-%d %H:%M")
+    
+    os.system('cls' if os.name == 'nt' else 'clear')
+    dashboard = UploadDashboard([item_path], {item_path: {'schedule_time': sched_str}})
     driver = setup_driver(os.path.join(os.getcwd(), "fb_profiles", profile), headless=is_headless)
     try:
-        # Ask for schedule
-        res = get_datetime_input("Jadwal")
-        sched_str = None if res == 'now' else res.strftime("%Y-%m-%d %H:%M")
         
         # We need to temporarily recreate the folder structure or handle the files directly
         # In this implementation, we assume the folder still exists
@@ -782,65 +1181,259 @@ def run_pending_parts_mode():
         
         # Override get_media_files to use our specific list for this task
         # We'll pass media_files directly to run_fb_scheduled_task by modifying it to accept custom_media
-        if run_fb_scheduled_task(driver, profile, item_path, sched_str, pre_caption=sel_data.get('caption'), custom_media=media_files):
+        if run_fb_scheduled_task(driver, profile, item_path, sched_str, pre_caption=sel_data.get('caption'), custom_media=media_files, dashboard=dashboard):
             del pending[sel_key]
             save_pending_parts(pending)
-            print("✅ Part Sisa berhasil diproses.")
+            print(f"\n{TAG_SUCCESS} {CLR_BOLD}{CLR_GREEN}Part Sisa berhasil diproses.{CLR_RESET}")
     finally: driver.quit()
 
-def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, preview=False, pre_caption=None, custom_media=None):
+class UploadDashboard:
+    def __init__(self, pending_items, item_data_map):
+        self.pending_items = list(pending_items)
+        self.item_data_map = dict(item_data_map)
+        self.statuses = {item: "pending" for item in self.pending_items}  # pending, processing, success, failed
+        self.current_idx = 0
+        self.success_count = 0
+        self.failed_count = 0
+        self.current_job = {
+            "name": "",
+            "date": "",
+            "upload": "Pending",
+            "caption": "Pending",
+            "scheduling": "Pending",
+            "activity": "Pending"
+        }
+
+    def render(self):
+        sys.stdout.write("\033[H\033[J")
+        
+        # 1. Header
+        print("╭──────────────────────────────────────────────────────────────╮")
+        print("│                    ⚡ FACEBOOK SCHEDULER                     │")
+        print("│                       Upload Manager                         │")
+        print("╰──────────────────────────────────────────────────────────────╯")
+        print()
+        
+        # 2. Progress
+        total = len(self.pending_items)
+        current = self.current_idx
+        percent = 0.0 if total == 0 else (current / total) * 100
+        bar_len = 36
+        filled_len = int(bar_len * current // total) if total > 0 else 0
+        bar = '█' * filled_len + '░' * (bar_len - filled_len)
+        print("  Progress")
+        print(f"  {CLR_GREEN}{bar}{CLR_RESET}  {current}/{total}  ({percent:.1f}%)")
+        print()
+        
+        # 3. Current Job
+        print("  CURRENT JOB")
+        job = self.current_job
+        name_truncated = job["name"][:50] + "..." if len(job["name"]) > 53 else job["name"]
+        
+        print(f"  📄 {CLR_BOLD}{CLR_WHITE}{name_truncated}{CLR_RESET}")
+        print(f"  📅 {CLR_YELLOW}{job['date']}{CLR_RESET}")
+        print()
+        
+        upload_status = job["upload"]
+        if upload_status == "Completed":
+            upload_line = f"{CLR_GREEN}✓ Selesai{CLR_RESET}"
+        elif upload_status == "Pending":
+            upload_line = f"{CLR_DIM}Pending{CLR_RESET}"
+        elif upload_status == "Failed":
+            upload_line = f"{CLR_RED}✗ Gagal{CLR_RESET}"
+        else:
+            upload_line = f"{CLR_BLUE}⟳ {upload_status}{CLR_RESET}"
+            
+        caption_status = job["caption"]
+        if caption_status == "Injected":
+            caption_line = f"{CLR_GREEN}✓ Selesai{CLR_RESET}"
+        elif caption_status == "Pending":
+            caption_line = f"{CLR_DIM}Pending{CLR_RESET}"
+        elif caption_status == "Failed":
+            caption_line = f"{CLR_RED}✗ Gagal{CLR_RESET}"
+        else:
+            caption_line = f"{CLR_BLUE}⟳ {caption_status}{CLR_RESET}"
+            
+        sched_status = job["scheduling"]
+        if sched_status == "Completed":
+            sched_line = f"{CLR_GREEN}✓ Selesai{CLR_RESET}"
+        elif sched_status == "Pending":
+            sched_line = f"{CLR_DIM}Pending{CLR_RESET}"
+        elif sched_status == "Failed":
+            sched_line = f"{CLR_RED}✗ Gagal{CLR_RESET}"
+        else:
+            sched_line = f"{CLR_BLUE}⟳ {sched_status}{CLR_RESET}"
+            
+        print(f"  📤 Upload       {upload_line}")
+        print(f"  📝 Caption      {caption_line}")
+        print(f"  🗓️  Scheduling  {sched_line}")
+        
+        # Activity field
+        activity_status = job.get("activity", "-")
+        activity_truncated = activity_status[:50] + "..." if len(activity_status) > 53 else activity_status
+        print()
+        print(f"  ⚙️ Aktivitas   {CLR_DIM}{activity_truncated}{CLR_RESET}")
+        print()
+        
+        # 4. Recent (up to 4 items)
+        print("  RECENT")
+        recent_items = []
+        for idx, item in enumerate(self.pending_items):
+            item_name = os.path.basename(item)
+            item_name_tr = item_name[:35] + "..." if len(item_name) > 38 else item_name
+            status = self.statuses[item]
+            
+            sched_time = self.item_data_map[item].get('schedule_time')
+            time_str = ""
+            if sched_time:
+                try:
+                    time_str = sched_time.split()[1]
+                except:
+                    time_str = "sched"
+            else:
+                time_str = "now"
+                
+            if status == "success":
+                icon = f"{CLR_GREEN}✓{CLR_RESET}"
+                recent_items.append(f"  {icon} {item_name_tr:<38} {CLR_DIM}{time_str:>8}{CLR_RESET}")
+            elif status == "failed":
+                icon = f"{CLR_RED}✗{CLR_RESET}"
+                recent_items.append(f"  {icon} {item_name_tr:<38} {CLR_RED}{time_str:>8}{CLR_RESET}")
+            elif idx == current:
+                icon = f"{CLR_BLUE}⟳{CLR_RESET}"
+                recent_items.append(f"  {icon} {CLR_BOLD}{item_name_tr:<38} {CLR_YELLOW}{time_str:>8}{CLR_RESET}")
+            else:
+                icon = f"{CLR_DIM}○{CLR_RESET}"
+                recent_items.append(f"  {icon} {CLR_DIM}{item_name_tr:<38} {time_str:>8}{CLR_RESET}")
+                
+        start_slice = max(0, current - 2)
+        end_slice = min(len(recent_items), start_slice + 4)
+        if end_slice - start_slice < 4 and len(recent_items) >= 4:
+            start_slice = len(recent_items) - 4
+            
+        for r_line in recent_items[start_slice:end_slice]:
+            print(r_line)
+        print()
+        
+        # 5. Summary Line
+        print("──────────────────────────────────────────────────────────────")
+        proc_count = 1 if current < total else 0
+        print(f"  {CLR_GREEN}✓ Success: {self.success_count}{CLR_RESET}     {CLR_RED}✗ Failed: {self.failed_count}{CLR_RESET}     {CLR_BLUE}⟳ Processing: {proc_count}{CLR_RESET}")
+        print("──────────────────────────────────────────────────────────────")
+        print()
+        sys.stdout.flush()
+
+    def _format_border_line(self, left_content, width=56):
+        raw_len = len(re.sub(r'\033\[[0-9;]*m', '', left_content))
+        emojis = ["📄", "📅", "📤", "📝", "🗓️", "⟳", "✓", "✗", "○", "⚡", "⚙️"]
+        emoji_extra_width = sum(left_content.count(e) for e in emojis)
+        padding = width - raw_len - emoji_extra_width
+        if padding < 0: padding = 0
+        return f"  │ {left_content}" + " " * padding + "│"
+
+def log_step(message, dashboard=None, is_success=False):
+    if dashboard:
+        dashboard.current_job["activity"] = ("✓ " if is_success else "") + message
+        dashboard.render()
+    else:
+        prefix = "[✓]" if is_success else "[i]"
+        print(f"    {prefix} {message}")
+
+def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, preview=False, pre_caption=None, custom_media=None, dashboard=None):
     wait = WebDriverWait(driver, 30)
     item_name = os.path.basename(post_path)
     is_file = os.path.isfile(post_path)
     
     media_files = custom_media if custom_media else get_media_files(post_path)
     if not media_files:
-        print(f"    [!] Skip: Tidak ada media di {item_name}")
+        print(f"    {TAG_WARNING} Skip: Tidak ada media di {item_name}")
         return False
 
     caption_text = pre_caption if pre_caption else get_caption_text(post_path)
 
+    if dashboard:
+        dashboard.current_job["name"] = item_name
+        dashboard.current_job["date"] = schedule_time if schedule_time else "🚀 Posting SEKARANG"
+        dashboard.current_job["upload"] = "Pending"
+        dashboard.current_job["caption"] = "Pending"
+        dashboard.current_job["scheduling"] = "Pending"
+        dashboard.render()
+
+    # --- CHECK FOR 28 DAYS FUTURE SCHEDULING LIMIT ---
+    if schedule_time:
+        try:
+            sched_dt = datetime.strptime(schedule_time, "%Y-%m-%d %H:%M")
+            limit_dt = datetime.now() + timedelta(days=28)
+            if sched_dt > limit_dt:
+                post_num = (dashboard.current_idx + 1) if dashboard else "?"
+                error_msg = f"Postingan ke-{post_num} dibatalkan karena lebih dari 28 hari ke depan."
+                update_post_status(post_path, f"Gagal: {error_msg}", 0)
+                if dashboard:
+                    dashboard.current_job["upload"] = "Failed"
+                    dashboard.current_job["caption"] = "Failed"
+                    dashboard.current_job["scheduling"] = "Failed"
+                    dashboard.current_job["activity"] = error_msg
+                    dashboard.statuses[post_path] = "failed"
+                    dashboard.failed_count += 1
+                    dashboard.render()
+                else:
+                    print(f"    {TAG_ERROR} {error_msg}")
+                time.sleep(3)
+                return False
+        except Exception as ex:
+            pass
+
     # --- PRATINJAU POSTINGAN (Style ala auto_poster_album.py) ---
     if preview:
-        print("\n" + "═"*60)
-        print("   👀 PRATINJAU POSTINGAN FB")
-        print("═"*60)
-        print(f"📁 Item    : {item_name}")
-        print(f"🕒 Jadwal  : {schedule_time if schedule_time else '🚀 Posting SEKARANG'}")
-        print(f"🖼️  Media   : {len(media_files)} file")
+        print(f"\n{CLR_BOLD}{CLR_WHITE}👀 === PRATINJAU POSTINGAN FB ==={CLR_RESET}")
+        print(f"  {CLR_BOLD}📁 Item{CLR_RESET}    : {CLR_CYAN}{item_name}{CLR_RESET}")
+        sched_time_str = schedule_time if schedule_time else '🚀 Posting SEKARANG'
+        print(f"  {CLR_BOLD}🕒 Jadwal{CLR_RESET}  : {CLR_YELLOW}{sched_time_str}{CLR_RESET}")
+        print(f"  {CLR_BOLD}🖼️  Media{CLR_RESET}   : {CLR_GREEN}{len(media_files)} file{CLR_RESET}")
         for i, m in enumerate(media_files[:3]):
-            print(f"   {i+1}. {os.path.basename(m)}")
+            print(f"    {i+1}. {CLR_DIM}{os.path.basename(m)}{CLR_RESET}")
         if len(media_files) > 3:
-            print(f"   ... dan {len(media_files)-3} lainnya.")
-        print("─" * 60)
-        print(f"📝 Caption :\n{caption_text}")
-        print("═"*60)
+            print(f"    ... dan {len(media_files)-3} lainnya.")
+        print(f"  {CLR_BOLD}📝 Caption{CLR_RESET} :")
+        for line in caption_text.splitlines():
+            print(f"    {line}")
+        print(f"{CLR_BOLD}{CLR_WHITE}================================={CLR_RESET}\n")
         
         # Cek apakah stdin adalah TTY sebelum meminta input
         if sys.stdin.isatty():
-            confirm = input("\n[?] Lanjut upload? (y/n, default y): ").lower()
+            confirm = input(f"\n{TAG_INPUT} Lanjut upload? (y/n, default y): ").lower()
             if confirm == 'n':
-                print("❌ Upload dibatalkan oleh pengguna.")
+                print(f"{TAG_ERROR} Upload dibatalkan oleh pengguna.")
                 return False
         else:
-            print("⚠️  Mode non-interaktif, melewati konfirmasi pratinjau.")
+            print(f"{TAG_WARNING} Mode non-interaktif, melewati konfirmasi pratinjau.")
 
     try:
         update_post_status(post_path, "Membuka Facebook...", 10)
-        print(f"[*] Memproses {item_name} -> Jadwal: {schedule_time}")
+        print(f"{TAG_INFO} Memproses {CLR_BOLD}{item_name}{CLR_RESET} -> Jadwal: {CLR_YELLOW}{schedule_time if schedule_time else 'Posting SEKARANG'}{CLR_RESET}")
+        if dashboard:
+            dashboard.current_job["upload"] = "Membuka Facebook..."
+            dashboard.render()
         driver.get("https://www.facebook.com/")
         time.sleep(5)
 
         # 1. Buka Dialog Post
         update_post_status(post_path, "Membuka dialog posting...", 20)
         post_xpath = "//div[@role='button']//span[contains(text(), 'Apa yang Anda pikirkan')] | //div[@role='button']//span[contains(text(), \"What's on your mind\")]"
-        wait.until(EC.element_to_be_clickable((By.XPATH, post_xpath))).click()
+        post_btn = wait.until(EC.presence_of_element_located((By.XPATH, post_xpath)))
+        try:
+            post_btn.click()
+        except:
+            driver.execute_script("arguments[0].click();", post_btn)
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='dialog']")))
         human_delay(1, 1.5)
 
         # 2. Upload Media & Caption
         update_post_status(post_path, f"Mengunggah {len(media_files)} media...", 40)
-        print(f"    [*] Mengunggah {len(media_files)} media & Menyuntikkan caption...")
+        print(f"    {TAG_INFO} Mengunggah {CLR_GREEN}{len(media_files)}{CLR_RESET} media & Menyuntikkan caption...")
+        if dashboard:
+            dashboard.current_job["upload"] = "Mengunggah media..."
+            dashboard.render()
         driver.execute_script("var t = arguments[0]; var a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); document.execCommand('copy'); document.body.removeChild(a);", caption_text)
         
         file_input = driver.find_element(By.XPATH, "//input[@type='file']")
@@ -849,7 +1442,7 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
         ActionChains(driver).key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
         
         # 3. Deteksi Progress Upload
-        print(f"    [*] Mendeteksi progress upload media...")
+        print(f"    {TAG_INFO} Mendeteksi progress upload media...")
         last_percent = -1
         start_wait = time.time()
         while time.time() - start_wait < 600: # Max 10 menit
@@ -867,13 +1460,16 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                             # Update ke dashboard: range 40% - 70% adalah untuk upload media
                             ui_progress = 40 + int(percent * 0.3)
                             update_post_status(post_path, f"Mengunggah media: {percent}%", ui_progress)
-                            print(f"\r    [+] Uploading: {percent}%", end="")
+                            print(f"\r    {TAG_SUCCESS} Uploading: {CLR_GREEN}{percent}%{CLR_RESET}", end="")
                             last_percent = percent
+                            if dashboard:
+                                dashboard.current_job["upload"] = f"Mengunggah: {percent}% [" + "█" * (percent // 10) + "░" * (10 - (percent // 10)) + "]"
+                                dashboard.render()
                         break
                 
                 # Jika indikator % hilang tapi sebelumnya ada, berarti selesai
                 if not found_percent and last_percent >= 0:
-                    print("\n    [+] Indikator progress hilang, upload selesai.")
+                    print(f"\n    {TAG_SUCCESS} Indikator progress hilang, upload selesai.")
                     break
                 
                 # Fallback: Cek jika tombol 'Berikutnya'/'Next' atau 'Kirim'/'Post' sudah muncul dan aktif
@@ -893,14 +1489,19 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                                 break
                                 
                     if btn_ready:
-                        print("\n    [+] Tombol navigasi/post terdeteksi aktif, upload selesai.")
+                        print(f"\n    {TAG_SUCCESS} Tombol navigasi/post terdeteksi aktif, upload selesai.")
                         break
             except: pass
             time.sleep(2)
 
         # 4. Posting / Penjadwalan
+        if dashboard:
+            dashboard.current_job["upload"] = "Completed"
+            dashboard.current_job["caption"] = "Injected"
+            dashboard.current_job["scheduling"] = "Menjadwalkan..." if schedule_time else "Memposting..."
+            dashboard.render()
         update_post_status(post_path, "Tahap akhir (Post/Jadwalkan)...", 70)
-        print("[*] Tahap akhir posting...")
+        log_step("Tahap akhir posting...", dashboard)
         next_btn_xpath = (
             "//div[@role='dialog']//div[@aria-label='Berikutnya'][not(contains(@aria-label, 'Pemirsa'))]"
             "| //div[@role='dialog']//div[@aria-label='Next']"
@@ -909,7 +1510,7 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
         
         try:
             if not schedule_time:
-                print("    [*] Mode: Posting SEKARANG")
+                log_step("Mode: Posting SEKARANG", dashboard)
                 post_submit_xpath = (
                     "//div[@role='dialog']//div[@role='button'][not(@aria-haspopup)]"
                     "[not(contains(@aria-label, 'Pemirsa'))][not(contains(@aria-label, 'Audience'))]"
@@ -924,20 +1525,26 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                     visible_post = [b for b in btns if b.is_displayed()]
                     if visible_post:
                         driver.execute_script("arguments[0].click();", visible_post[-1])
-                        print("    [+] Tombol 'Kirim/Post' diklik.")
+                        log_step("Tombol Kirim/Post diklik.", dashboard, is_success=True)
                         break
                     
                     btns_next = driver.find_elements(By.XPATH, next_btn_xpath)
                     visible_next = [b for b in btns_next if b.is_displayed()]
                     if visible_next:
-                        print(f"    [*] Mengklik tombol 'Berikutnya' (Langkah {i+1})...")
+                        log_step(f"Mengklik tombol 'Berikutnya' (Langkah {i+1})...", dashboard)
                         driver.execute_script("arguments[0].click();", visible_next[-1])
                     else:
-                        if i == 3: print("    [!] Tombol Post tidak ditemukan."); return False
+                        if i == 3: print(f"    {TAG_ERROR} Tombol Post tidak ditemukan."); return False
             else:
-                print(f"    [*] Mode: Penjadwalan -> {schedule_time}")
+                log_step(f"Mode: Penjadwalan -> {schedule_time}", dashboard)
+                next_btn_xpath = (
+                    "//div[@role='dialog']//div[@aria-label='Berikutnya'][not(contains(@aria-label, 'Pemirsa'))]"
+                    "| //div[@role='dialog']//div[@aria-label='Next']"
+                    "| //div[@role='dialog']//div[@role='button']//span[text()='Berikutnya' or text()='Next']"
+                )
                 opt_xpath = "//div[@role='dialog']//span[contains(text(), 'Opsi penjadwalan')] | //div[@role='dialog']//div[@aria-label='Opsi penjadwalan']"
                 
+                # Loop untuk menangani tombol 'Berikutnya' (Next) yang muncul berkali-kali sampai menu Opsi penjadwalan ditemukan
                 form_found = False
                 for i in range(3):
                     human_delay(2, 3)
@@ -950,49 +1557,76 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                     buttons = driver.find_elements(By.XPATH, next_btn_xpath)
                     visible_next = [btn for btn in buttons if btn.is_displayed()]
                     if visible_next:
-                        print(f"    [*] Mengklik tombol 'Berikutnya' (Langkah {i+1})...")
+                        log_step(f"Mengklik tombol 'Berikutnya' (Langkah {i+1})...", dashboard)
                         driver.execute_script("arguments[0].click();", visible_next[-1])
                         time.sleep(3)
-                    else: break
+                    else:
+                        break
                 
                 if not form_found:
-                    print("    [*] Mencari menu 'Opsi penjadwalan' intensif (60s)...")
+                    log_step("Mencari menu 'Opsi penjadwalan' intensif (60s)...", dashboard)
                     target_opt = WebDriverWait(driver, 60).until(EC.element_to_be_clickable((By.XPATH, opt_xpath)))
 
                 driver.execute_script("arguments[0].click();", target_opt)
-                print("    [+] Menu 'Opsi penjadwalan' terbuka.")
+                log_step("Menu 'Opsi penjadwalan' terbuka.", dashboard, is_success=True)
                 time.sleep(2)
 
-                # --- PENGATURAN OTOMATIS (MODE STABIL) ---
+                # --- PENGATURAN OTOMATIS (SPECIFIC TAB SEQUENCE) ---
+                log_step(f"Menyiapkan waktu posting: {schedule_time}", dashboard)
+                
                 dt_obj = datetime.strptime(schedule_time, "%Y-%m-%d %H:%M")
-                date_val, time_val = dt_obj.strftime("%d/%m/%Y"), dt_obj.strftime("%H:%M")
+                date_val = dt_obj.strftime("%d/%m/%Y") 
+                time_val = dt_obj.strftime("%H:%M")
+
                 actions = ActionChains(driver)
                 
-                # 1. TAB Pertama (Pancing Fokus ke Form)
-                actions.send_keys(Keys.TAB).perform(); time.sleep(1)
+                # 1. TAB Pertama (Abaikan)
+                log_step("Navigasi TAB 1 (Abaikan)...", dashboard)
+                actions.send_keys(Keys.TAB).perform()
+                time.sleep(1)
 
                 # 2. Navigasi ke kotak Tanggal (TAB 2)
-                actions.send_keys(Keys.TAB).perform(); time.sleep(1)
+                log_step("Navigasi TAB 2 (Tanggal)...", dashboard)
+                actions.send_keys(Keys.TAB).perform()
+                time.sleep(0.8)
                 active_el = driver.switch_to.active_element
-                active_el.send_keys(Keys.CONTROL + "a"); active_el.send_keys(Keys.BACKSPACE)
-                active_el.send_keys(date_val); time.sleep(1)
-                active_el.send_keys(Keys.ENTER); time.sleep(1.5) # Enter setelah tanggal
-                
-                # 3. Navigasi ke kotak Waktu (TAB 3)
-                actions.send_keys(Keys.TAB).perform(); time.sleep(1)
-                active_el = driver.switch_to.active_element
-                active_el.send_keys(Keys.CONTROL + "a"); active_el.send_keys(Keys.BACKSPACE)
-                active_el.send_keys(time_val); time.sleep(1)
-                active_el.send_keys(Keys.ENTER); time.sleep(1.5) # Enter setelah waktu
-                
-                actions.send_keys(Keys.TAB).perform(); time.sleep(1)
-                driver.switch_to.active_element.send_keys(Keys.ENTER); time.sleep(2)
+                active_el.send_keys(Keys.CONTROL + "a")
+                active_el.send_keys(Keys.BACKSPACE)
+                active_el.send_keys(date_val)
+                time.sleep(0.5)
+                active_el.send_keys(Keys.ENTER)
+                log_step("Tanggal di-ENTER.", dashboard, is_success=True)
+                time.sleep(0.8)
 
+                # 3. Navigasi ke kotak Waktu (TAB 3)
+                log_step("Navigasi TAB 3 (Waktu)...", dashboard)
+                actions.send_keys(Keys.TAB).perform()
+                time.sleep(0.8)
+                active_el = driver.switch_to.active_element
+                active_el.send_keys(Keys.CONTROL + "a")
+                active_el.send_keys(Keys.BACKSPACE)
+                active_el.send_keys(time_val)
+                time.sleep(0.5)
+                active_el.send_keys(Keys.ENTER)
+                log_step("Jam di-ENTER.", dashboard, is_success=True)
+                time.sleep(0.8)
+
+                # 4. Navigasi ke tombol Konfirmasi (TAB 4)
+                log_step("Navigasi TAB 4 (Konfirmasi)...", dashboard)
+                actions.send_keys(Keys.TAB).perform()
+                time.sleep(1)
+                active_el = driver.switch_to.active_element
+                log_step(f"Menekan ENTER pada: {active_el.text or 'Tombol Biru'}", dashboard)
+                active_el.send_keys(Keys.ENTER)
+                time.sleep(2)
+
+                # 4. Klik Jadwalkan FINAL
+                log_step("Mengklik tombol 'Jadwalkan' final...", dashboard)
                 final_xpath = "//div[@role='dialog']//div[@role='button']//span[text()='Jadwalkan' or text()='Schedule']"
                 final_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, final_xpath)))
                 driver.execute_script("arguments[0].click();", final_btn)
             
-            print("    [*] Menunggu konfirmasi akhir...")
+            log_step("Menunggu konfirmasi akhir...", dashboard)
             
             # --- PENANGANAN DIALOG WHATSAPP / SHARE ---
             time.sleep(5)
@@ -1000,7 +1634,7 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                 whatsapp_xpath = "//div[@role='dialog']//span[contains(text(), 'WhatsApp')] | //div[@role='dialog']//span[contains(text(), 'Bagikan')] | //div[@role='dialog']//div[@aria-label='Tutup' or @aria-label='Close']"
                 dialogs = driver.find_elements(By.XPATH, whatsapp_xpath)
                 if dialogs:
-                    print("    [*] Mendeteksi dialog konfirmasi/WhatsApp, menutup...")
+                    log_step("Mendeteksi dialog konfirmasi/WhatsApp, menutup...", dashboard)
                     ActionChains(driver).send_keys(Keys.ESCAPE).perform()
                     time.sleep(2)
             except: pass
@@ -1013,92 +1647,120 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                 else:
                     f.write(f"Diposting: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
             
-            print(f"    [+] {item_name} BERHASIL {'dijadwalkan' if schedule_time else 'diposting'}.")
+            log_step(f"Postingan BERHASIL {'dijadwalkan' if schedule_time else 'diposting'}.", dashboard, is_success=True)
             update_post_status(post_path, "SELESAI!", 100)
-            time.sleep(5)
+            if dashboard:
+                dashboard.current_job["scheduling"] = "Completed"
+                dashboard.statuses[post_path] = "success"
+                dashboard.success_count += 1
+                dashboard.render()
             # Hapus file status setelah sukses
             status_file = (post_path + ".status") if is_file else os.path.join(post_path, "upload_status.json")
             if os.path.exists(status_file): os.remove(status_file)
+            
+            # Refresh halaman sebelum posting selanjutnya
+            try:
+                log_step("Merefresh halaman Facebook...", dashboard)
+                driver.refresh()
+                time.sleep(5)
+            except: pass
+            
             return True
 
         except Exception as e:
             update_post_status(post_path, f"Gagal: {str(e)}", 0)
-            print(f"    [-] Gagal: {e}")
+            print(f"    {TAG_ERROR} Gagal: {e}")
+            if dashboard:
+                dashboard.current_job["upload"] = "Failed" if dashboard.current_job["upload"] != "Completed" else "Completed"
+                dashboard.current_job["caption"] = "Failed" if dashboard.current_job["caption"] != "Injected" else "Injected"
+                dashboard.current_job["scheduling"] = "Failed"
+                dashboard.statuses[post_path] = "failed"
+                dashboard.failed_count += 1
+                dashboard.render()
             manual_fallback(driver, "Selesaikan manual di VNC.")
             return False
 
     except Exception as e:
         update_post_status(post_path, f"Error: {str(e)}", 0)
-        print(f"    [!] Error: {e}"); return False
+        print(f"    {TAG_ERROR} Error: {e}")
+        if dashboard:
+            dashboard.current_job["upload"] = "Failed" if dashboard.current_job["upload"] != "Completed" else "Completed"
+            dashboard.current_job["caption"] = "Failed" if dashboard.current_job["caption"] != "Injected" else "Injected"
+            dashboard.current_job["scheduling"] = "Failed"
+            dashboard.statuses[post_path] = "failed"
+            dashboard.failed_count += 1
+            dashboard.render()
+        return False
 
 def run_draft_mode():
     clear_screen()
-    print("🗓️  Kelola Draf Tersimpan\n")
+    print_header("🗓️  KELOLA DRAF TERSIMPAN")
     drafts = load_drafts()
     if not drafts:
-        print("[-] Tidak ada draf tersimpan."); return
+        print(f"{TAG_WARNING} Tidak ada draf tersimpan.")
+        return
 
     draft_list = list(drafts.items())
-    for i, (path, data) in enumerate(draft_list):
-        print(f"{i+1}. {os.path.basename(path)} (Profil: {data.get('profile', 'Default')})")
-    
-    choice = input("\nPilih nomor draf (atau 0 untuk batal): ").strip()
-    if not choice.isdigit() or int(choice) == 0: return
-    
-    idx = int(choice) - 1
-    if not (0 <= idx < len(draft_list)): return
+    draft_options = [f"{i+1}. {os.path.basename(path)} (Profil: {data.get('profile', 'Default')})" for i, (path, data) in enumerate(draft_list)] + ["0. Batal"]
+    idx = select_menu_option("DAFTAR DRAF TERSIMPAN", draft_options)
+    if idx == len(draft_list): # "0. Batal"
+        return
     
     sel_path, sel_data = draft_list[idx]
     
-    print(f"\nOpsi untuk '{os.path.basename(sel_path)}':")
-    print("1. Posting / Jadwalkan Sekarang")
-    print("2. Hapus Draf")
-    print("3. Batal")
-    opt = input("Pilih: ").strip()
+    draft_opts = [
+        "1. Posting / Jadwalkan Sekarang",
+        "2. Hapus Draf",
+        "3. Batal"
+    ]
+    opt_idx = select_menu_option(f"OPSI: {os.path.basename(sel_path)}", draft_opts)
+    opt = str(opt_idx + 1)
     
     if opt == '1':
         res = get_datetime_input("Jadwal")
         sched_str = None if res == 'now' else res.strftime("%Y-%m-%d %H:%M")
         
-        is_headless = input("Gunakan Mode Headless (n VNC)? (y/n): ").lower() == 'y'
+        is_headless = input(f"\n{TAG_INPUT} Gunakan Mode Headless (n VNC)? (y/n, default n): ").lower() == 'y'
         profile = sel_data.get('profile', 'Default')
+        os.system('cls' if os.name == 'nt' else 'clear')
         setup_sticky_footer()
+        dashboard = UploadDashboard([sel_path], {sel_path: {'schedule_time': sched_str}})
         driver = setup_driver(os.path.join(os.getcwd(), "fb_profiles", profile), headless=is_headless)
         try:
             print_progress_bar(0, 1)
             media_files = sel_data.get('media_files')
-            if run_fb_scheduled_task(driver, profile, sel_path, sched_str, pre_caption=sel_data.get('caption'), custom_media=media_files):
+            if run_fb_scheduled_task(driver, profile, sel_path, sched_str, pre_caption=sel_data.get('caption'), custom_media=media_files, dashboard=dashboard):
                 del drafts[sel_path]
                 save_drafts(drafts)
                 print_progress_bar(1, 1)
                 reset_scroll_region()
-                print("✅ DRAF BERHASIL DIPOSTING.")
+                print(f"\n{TAG_SUCCESS} {CLR_BOLD}{CLR_GREEN}DRAF BERHASIL DIPOSTING.{CLR_RESET}")
         finally: driver.quit()
     elif opt == '2':
         del drafts[sel_path]
         save_drafts(drafts)
-        print("✅ Draf dihapus.")
+        print(f"\n{TAG_SUCCESS} Draf berhasil dihapus.")
 
 def run_profile_mode():
     clear_screen()
-    print("🔄 Kelola Profil Browser\n")
+    print_header("🔄 KELOLA PROFIL BROWSER")
     profile_dir = os.path.join(os.getcwd(), "fb_profiles")
     profiles = sorted([d for d in os.listdir(profile_dir) if os.path.isdir(os.path.join(profile_dir, d))])
     
-    for i, p in enumerate(profiles): print(f"{i+1}. {p}")
-    
-    print("\nOpsi:")
-    print("1. Buka Profil (Cek Login / VNC)")
-    print("2. Batal")
-    choice = input("Pilih: ").strip()
-    
-    if choice == '1':
-        p_idx = int(input("Pilih Nomor Profil: ")) - 1
-        sel_profile = profiles[p_idx]
-        print(f"[*] Membuka browser untuk profil '{sel_profile}'...")
-        driver = setup_driver(os.path.join(os.getcwd(), "fb_profiles", sel_profile), headless=False)
-        input("\n[!] Tekan ENTER di sini jika sudah selesai mengecek browser untuk menutup...")
-        driver.quit()
+    if not profiles:
+        print(f"{TAG_WARNING} Tidak ada profil browser yang ditemukan.")
+        return
+
+    profile_options = [f"{i+1}. {p}" for i, p in enumerate(profiles)] + ["0. Batal"]
+    p_idx = select_menu_option("DAFTAR PROFIL", profile_options)
+    if p_idx == len(profiles): # "0. Batal"
+        return
+        
+    sel_profile = profiles[p_idx]
+    print(f"\n{TAG_INFO} Membuka browser untuk profil '{CLR_BOLD}{sel_profile}{CLR_RESET}'...")
+    driver = setup_driver(os.path.join(os.getcwd(), "fb_profiles", sel_profile), headless=False)
+    input(f"\n{TAG_WARNING} Tekan ENTER di sini jika sudah selesai mengecek browser untuk menutup...")
+    driver.quit()
 
 def run_single_post_mode():
     print("\n🖼️ Mode Postingan Tunggal (WIP)")
@@ -1108,16 +1770,16 @@ def run_single_post_mode():
 def main_menu():
     while True:
         clear_screen()
-        print("🚀 Facebook Auto-Poster Terpadu (Selenium) 🚀")
-        print("=====================================")
-        print("1. 📚 Mode Postingan Album")
-        print("2. 🗓️  Kelola Draf Tersimpan")
-        print("3. 🔄 Lanjutkan Upload Part Sisa (WIP)")
-        print("4. 🖼️  Mode Postingan Tunggal (WIP)")
-        print("5. 🔄 Kelola Profil Browser")
-        print("0. 🚪 Keluar")
-        
-        choice = input("\nMasukkan pilihan (1-5, 0): ").strip()
+        options = [
+            "1. 📚 Mode Postingan Album",
+            "2. 🗓️  Kelola Draf Tersimpan",
+            "3. 🔄 Lanjutkan Upload Part Sisa",
+            "4. 🖼️  Mode Postingan Tunggal (WIP)",
+            "5. 🔄 Kelola Profil Browser",
+            "0. 🚪 Keluar"
+        ]
+        choice_idx = select_menu_option("🚀 FACEBOOK AUTO-POSTER TERPADU 🚀", options)
+        choice = options[choice_idx].split('.')[0].strip()
         
         if choice == '1': run_album_post_mode()
         elif choice == '2': run_draft_mode()
@@ -1126,9 +1788,10 @@ def main_menu():
         elif choice == '5': run_profile_mode()
         elif choice == '0': break
         
-        if choice != '0': input("\nTekan Enter untuk kembali ke menu utama...")
+        if choice != '0': input(f"\n{TAG_INPUT} Tekan Enter untuk kembali ke menu utama...")
 
 if __name__ == "__main__":
+    os.system('cls' if os.name == 'nt' else 'clear')
     import argparse
     parser = argparse.ArgumentParser(description="FB Smart Scheduled Uploader")
     parser.add_argument("--profile", help="Nama profil")
@@ -1148,7 +1811,7 @@ if __name__ == "__main__":
         main_menu()
         sys.exit()
 
-    print("\n=== FB SMART SCHEDULED UPLOADER (CLI MODE) ===")
+    print_header("FB SMART SCHEDULED UPLOADER (CLI MODE)")
     
     # --- LOGIKA MULTI AKUN (NON-INTERAKTIF / AUTO SCAN) ---
     if args.multi:
@@ -1156,7 +1819,7 @@ if __name__ == "__main__":
         is_headless = args.headless
         is_preview = args.preview
         is_web_preview = args.web_preview
-        print(f"[*] Memulai mode MULTI-ACCOUNT Auto Scan (Jeda: {interval_mins}m)")
+        print(f"{TAG_INFO} Memulai mode MULTI-ACCOUNT Auto Scan (Jeda: {interval_mins}m)")
         
         while True:
             # Muat ulang config setiap loop agar bisa update akun baru tanpa restart
@@ -1173,7 +1836,7 @@ if __name__ == "__main__":
                 next_post = get_next_folder(base_dir)
                 if next_post:
                     found_any = True
-                    print(f"\n[+] Akun: {profile} -> Folder: {os.path.basename(next_post)}")
+                    print(f"\n{TAG_SUCCESS} Akun: {CLR_BOLD}{profile}{CLR_RESET} -> Folder: {CLR_CYAN}{os.path.basename(next_post)}{CLR_RESET}")
                     
                     profile_path = os.path.join(os.getcwd(), "fb_profiles", profile)
                     cleanup_profile(profile_path)
@@ -1181,7 +1844,7 @@ if __name__ == "__main__":
                     try:
                         # Web preview biasanya tidak cocok untuk mode multi-scan, tapi kita support jika flag ada
                         if is_web_preview:
-                            item_data_map = {next_post: {'caption': get_caption_text(next_post), 'media_files': get_media_files(next_post), 'schedule_time': None}}
+                            item_data_map = {next_post: {'caption': get_caption_text(next_post), 'media_files': get_media_files(next_post), 'schedule_time': None, 'photo_captions': load_photo_captions(next_post)}}
                             pending_items, item_data_map = run_interactive_preview_web([next_post], item_data_map)
                             if not pending_items: continue
                             next_post = pending_items[0]
@@ -1192,31 +1855,40 @@ if __name__ == "__main__":
                     finally:
                         driver.quit()
                     
-                    print(f"[*] Selesai. Menunggu {interval_mins} menit...")
+                    print(f"   {TAG_INFO} Selesai. Menunggu {interval_mins} menit...")
                     time.sleep(interval_mins * 60)
             
             if not found_any:
-                sys.stdout.write(f"\r[*] Tidak ada konten di semua akun. Menunggu 5 menit... ")
+                sys.stdout.write(f"\r{TAG_INFO} Tidak ada konten di semua akun. Menunggu 5 menit... ")
                 sys.stdout.flush()
                 time.sleep(300)
         sys.exit()
 
     profile_dir = os.path.join(os.getcwd(), "fb_profiles")
     profiles = sorted([d for d in os.listdir(profile_dir) if os.path.isdir(os.path.join(profile_dir, d))])
-    if not profiles: print("[!] Profil kosong."); sys.exit()
+    if not profiles:
+        print(f"{TAG_ERROR} Profil kosong.")
+        sys.exit()
 
     if args.profile:
         sel_profile = args.profile
     else:
-        for i, p in enumerate(profiles): print(f"{i+1}. {p}")
-        sel_profile = profiles[int(input("\nPilih Profil: "))-1]
+        print_menu_box("PILIH PROFIL FACEBOOK", [f"{i+1}. {p}" for i, p in enumerate(profiles)])
+        try:
+            sel_idx = int(input(f"\n{TAG_INPUT} Pilih Profil (1-{len(profiles)}): ").strip()) - 1
+            sel_profile = profiles[sel_idx]
+        except (ValueError, IndexError):
+            print(f"{TAG_ERROR} Pilihan profil tidak valid!")
+            sys.exit()
 
     if args.path:
         parent_folder = args.path
     else:
-        parent_folder = input("Masukkan Path Folder Utama: ").strip().replace('"', '').replace("'", "")
+        parent_folder = input(f"\n{TAG_INPUT} Masukkan Path Folder Utama: ").strip().replace('"', '').replace("'", "")
     
-    if not os.path.isdir(parent_folder): print("[!] Folder tidak valid!"); sys.exit()
+    if not os.path.isdir(parent_folder):
+        print(f"{TAG_ERROR} Folder tidak valid!")
+        sys.exit()
 
     # DETEKSI SMART: Sub-folder vs Direct Files
     if any(f.lower().endswith((".mp4", ".jpg", ".png", ".jpeg", ".webp")) for f in os.listdir(parent_folder)):
@@ -1232,7 +1904,9 @@ if __name__ == "__main__":
                 if not os.path.exists(item + ".uploadedfb"):
                     pending_items.append(item)
 
-    if not pending_items: print("[!] Tidak ada konten baru."); sys.exit()
+    if not pending_items:
+        print(f"\n{TAG_WARNING} Tidak ada konten baru.")
+        sys.exit()
     
     # Argumen CLI tidak perlu sorting dashboard manual
     if not args.path:
@@ -1245,27 +1919,29 @@ if __name__ == "__main__":
                 p_map = {os.path.basename(p): p for p in pending_items}
                 ordered = [p_map[name] for name in custom_order if name in p_map]
                 pending_items = ordered + [p for p in pending_items if p not in ordered]
-                print("[+] Menggunakan urutan Dashboard.")
+                print(f"{TAG_INFO} Menggunakan urutan Dashboard.")
             except: pass
 
     if args.limit is not None and args.profile: # Jika via CLI
         limit = args.limit
     else:
-        num_post = input("Jumlah postingan (Enter = Semua): ").strip()
+        num_post = input(f"\n{TAG_INPUT} Jumlah postingan (Enter = Semua): ").strip()
         limit = int(num_post) if num_post.isdigit() else 0
     
     if not args.profile:
-        if input("Acak urutan? (y/n): ").lower() == 'y': random.shuffle(pending_items)
+        if input(f"\n{TAG_INPUT} Acak urutan? (y/n, default n): ").lower() == 'y':
+            random.shuffle(pending_items)
     
     if limit > 0: pending_items = pending_items[:limit]
 
     if args.mode:
         is_post_now = (args.mode == 2)
     else:
-        print("\n[?] Ingin menjadwalkan atau posting sekarang?")
-        print("1. Jadwalkan (Scheduled)")
-        print("2. Posting Sekarang (Post Now)")
-        mode_choice = input("Pilih [1/2, default 1]: ").strip()
+        print_menu_box("PILIH MODE POSTING", [
+            "1. Jadwalkan (Scheduled)",
+            "2. Posting Sekarang (Post Now)"
+        ])
+        mode_choice = input(f"\n{TAG_INPUT} Pilih [1/2, default 1]: ").strip()
         is_post_now = (mode_choice == '2')
 
     if is_post_now:
@@ -1273,33 +1949,40 @@ if __name__ == "__main__":
         if args.profile:
             interval_mins = args.interval if args.interval is not None else 0
         else:
-            interval_mins = int(input("Jeda antar posting (menit) [Enter=0]: ") or 0)
+            try:
+                interval_mins = int(input(f"\n{TAG_INPUT} Jeda antar posting (menit) [Enter=0]: ") or 0)
+            except ValueError:
+                interval_mins = 0
     else:
         if args.start:
             start_str = args.start
         elif args.profile:
             start_str = "" # Default to 30m if profile given but no start
         else:
-            start_str = input("Waktu Mulai (YYYY-MM-DD HH:MM) [Enter = 30m lagi]: ").strip()
+            start_str = input(f"\n{TAG_INPUT} Waktu Mulai (YYYY-MM-DD HH:MM) [Enter = 30m lagi]: ").strip()
         
         current_time_obj = datetime.now() + timedelta(minutes=30) if not start_str else datetime.strptime(start_str, "%Y-%m-%d %H:%M")
         
         if args.profile:
             interval_mins = args.interval if args.interval is not None else 60
         else:
-            interval_mins = int(input("Jeda antar jadwal (menit): "))
+            try:
+                interval_mins = int(input(f"\n{TAG_INPUT} Jeda antar jadwal (menit): ").strip())
+            except ValueError:
+                interval_mins = 60
 
     if args.profile:
         is_headless = args.headless
         is_preview = args.preview
         is_web_preview = args.web_preview
     else:
-        is_headless = input("Gunakan Mode Headless (n VNC)? (y/n): ").lower() == 'y'
-        print("\n--- Pilihan Pratinjau ---")
-        print("1. Tanpa Pratinjau")
-        print("2. Pratinjau Terminal (Ringkas)")
-        print("3. Pratinjau Web Interaktif (Full - Bisa Edit/Urut)")
-        preview_choice = input("Pilih [1/2/3, default 1]: ").strip()
+        is_headless = input(f"\n{TAG_INPUT} Gunakan Mode Headless (n VNC)? (y/n, default n): ").lower() == 'y'
+        print_menu_box("PILIHAN PRATINJAU", [
+            "1. Tanpa Pratinjau",
+            "2. Pratinjau Terminal (Ringkas)",
+            "3. Pratinjau Web Interaktif (Full - Bisa Edit/Urut)"
+        ])
+        preview_choice = input(f"\n{TAG_INPUT} Pilih [1/2/3, default 1]: ").strip()
         is_preview = (preview_choice == '2')
         is_web_preview = (preview_choice == '3')
 
@@ -1311,23 +1994,26 @@ if __name__ == "__main__":
         item_data_map[p] = {
             'caption': get_caption_text(p),
             'media_files': get_media_files(p),
-            'schedule_time': sched_str
+            'schedule_time': sched_str,
+            'photo_captions': load_photo_captions(p)
         }
         if temp_time: temp_time += timedelta(minutes=interval_mins)
 
     if is_web_preview:
         pending_items, item_data_map = run_interactive_preview_web(pending_items, item_data_map)
         if not pending_items:
-            print("[!] Semua postingan dibatalkan. Keluar.")
+            print(f"{TAG_ERROR} Semua postingan dibatalkan. Keluar.")
             sys.exit()
 
     if args.profile and pending_items:
         update_post_status(pending_items[0], "Inisialisasi bot...", 5)
 
     setup_sticky_footer()
+    dashboard = UploadDashboard(pending_items, item_data_map)
     driver = setup_driver(os.path.join(os.getcwd(), "fb_profiles", sel_profile), headless=is_headless)
     try:
         for i, item in enumerate(pending_items):
+            dashboard.current_idx = i
             print_progress_bar(i, len(pending_items))
             update_post_status(item, "Browser siap, memulai...", 8)
             data = item_data_map.get(item, {})
@@ -1335,15 +2021,15 @@ if __name__ == "__main__":
             caption = data.get('caption')
             media_files = data.get('media_files', [])
             
-            if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=media_files):
+            if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=media_files, dashboard=dashboard):
                 # Jeda antar posting jika bukan terjadwal
                 if not sched_str and interval_mins > 0 and item != pending_items[-1]:
-                    print(f"[*] Menunggu {interval_mins} menit sebelum posting berikutnya...")
+                    print(f"   {TAG_INFO} Menunggu {interval_mins} menit sebelum posting berikutnya...")
                     time.sleep(interval_mins * 60)
             else:
-                if input("[?] Lanjut? (y/n): ").lower() != 'y': break
+                if input(f"\n{TAG_INPUT} Lanjut? (y/n, default y): ").lower() == 'n': break
         
         print_progress_bar(len(pending_items), len(pending_items))
         reset_scroll_region()
-        print("✅ PROSES CLI SELESAI.")
+        print(f"\n{TAG_SUCCESS} {CLR_BOLD}{CLR_GREEN}PROSES CLI SELESAI.{CLR_RESET}")
     finally: driver.quit()
