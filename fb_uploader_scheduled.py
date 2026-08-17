@@ -12,6 +12,7 @@ import webbrowser
 import atexit
 import html
 import shutil
+import urllib.parse
 from functools import partial
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -159,18 +160,23 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
             html_content = self.generate_html()
             self.wfile.write(html_content.encode('utf-8'))
         elif self.path.startswith('/media/'):
-            # Path format: /media/<index>/<filename>
+            # Path format: /media/<item_idx>/<media_idx>
             parts = self.path.split('/')
             if len(parts) >= 4:
                 try:
                     item_idx = int(parts[2])
-                    filename = parts[3]
-                    item_path = self.state.pending_items[item_idx]
-                    media_path = os.path.join(item_path, filename) if os.path.isdir(item_path) else item_path
+                    media_idx = int(parts[3])
+                    item_key = self.state.pending_items[item_idx]
+                    data = self.state.item_data_map.get(item_key, {})
+                    media_files = data.get('media_files', [])
                     
-                    if os.path.exists(media_path):
+                    media_path = None
+                    if 0 <= media_idx < len(media_files):
+                        media_path = media_files[media_idx]
+                    
+                    if media_path and os.path.exists(media_path):
                         self.send_response(200)
-                        ext = os.path.splitext(filename)[1].lower()
+                        ext = os.path.splitext(media_path)[1].lower()
                         mime = "image/jpeg"
                         if ext in ['.mp4', '.mov', '.avi']: mime = "video/mp4"
                         elif ext == '.png': mime = "image/png"
@@ -181,7 +187,8 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                         with open(media_path, 'rb') as f:
                             self.wfile.write(f.read())
                         return
-                except: pass
+                except Exception as e:
+                    print(f"[!] Media serve error: {e}")
             self.send_error(404)
         else:
             self.send_error(404)
@@ -220,10 +227,15 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
         elif self.path == '/delete_photo':
             with self.state.lock:
                 idx = data['index']
-                filename = data['filename']
+                media_idx = data.get('media_idx')
+                filename = data.get('filename')
                 item_path = self.state.pending_items[idx]
                 media_files = self.state.item_data_map[item_path]['media_files']
-                self.state.item_data_map[item_path]['media_files'] = [m for m in media_files if os.path.basename(m) != filename]
+                
+                if media_idx is not None and 0 <= media_idx < len(media_files):
+                    media_files.pop(media_idx)
+                else:
+                    self.state.item_data_map[item_path]['media_files'] = [m for m in media_files if os.path.basename(m) != filename]
             self.send_response(200)
             self.end_headers()
         elif self.path == '/add_photo':
@@ -301,13 +313,18 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
         elif self.path == '/reorder_photos':
             with self.state.lock:
                 idx = data['index']
-                new_order_filenames = data['photo_order'] # List of filenames
                 item_path = self.state.pending_items[idx]
-                
                 current_photos = self.state.item_data_map[item_path]['media_files']
-                photo_map = {os.path.basename(p): p for p in current_photos}
-                new_photo_list = [photo_map[name] for name in new_order_filenames if name in photo_map]
-                self.state.item_data_map[item_path]['media_files'] = new_photo_list
+                
+                if 'photo_order_indices' in data:
+                    new_order_indices = [int(i) for i in data['photo_order_indices']]
+                    new_photo_list = [current_photos[i] for i in new_order_indices if 0 <= i < len(current_photos)]
+                    self.state.item_data_map[item_path]['media_files'] = new_photo_list
+                elif 'photo_order' in data:
+                    new_order_filenames = data['photo_order']
+                    photo_map = {os.path.basename(p): p for p in current_photos}
+                    new_photo_list = [photo_map[name] for name in new_order_filenames if name in photo_map]
+                    self.state.item_data_map[item_path]['media_files'] = new_photo_list
             self.send_response(200)
             self.end_headers()
 
@@ -320,11 +337,14 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
             
             # Media Grid
             images_html = ""
-            for media_path in data['media_files']:
+            for m_idx, media_path in enumerate(data['media_files']):
                 m_filename = os.path.basename(media_path)
+                m_folder = os.path.basename(os.path.dirname(media_path))
+                display_label = f"[{m_folder}] {m_filename}" if len(data.get('original_paths', [])) > 1 else m_filename
+                
                 ext = os.path.splitext(m_filename)[1].lower()
                 is_video = ext in ['.mp4', '.mov', '.avi']
-                media_url = f"/media/{i}/{m_filename}"
+                media_url = f"/media/{i}/{m_idx}"
                 
                 if is_video:
                     media_tag = f'<div class="video-thumb"><img src="{media_url}"><div class="play-icon">▶</div></div>'
@@ -338,12 +358,12 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                 photo_card_content = ''
                 if desc2:
                     photo_card_content = f'''
-                        <p class="photo-description" id="caption-{i}-{m_filename}">{html.escape(desc2)}</p>
+                        <p class="photo-description" id="caption-{i}-{m_idx}">{html.escape(desc2)}</p>
                         <button class="edit-button" onclick="togglePhotoEdit(this, {i}, \'{m_filename}\')">Edit Caption</button>
                     '''
                 elif desc1:
                     photo_card_content = f'''
-                        <div class="caption-choice-container" id="choice-container-{i}-{m_filename}">
+                        <div class="caption-choice-container" id="choice-container-{i}-{m_idx}">
                             <p class="choice-prompt">Caption kosong. Pilih aksi:</p>
                             <select class="caption-choice-select" onchange="handleCaptionChoice(this, {i}, \'{m_filename}\', \'{html.escape(desc1)}\')">
                                 <option value="use_desc">Gunakan 'description'</option>
@@ -351,23 +371,23 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                             </select>
                             <p class="fallback-preview"><b>Preview:</b> {html.escape(desc1)}</p>
                         </div>
-                        <p class="photo-description" id="caption-{i}-{m_filename}" style="display:none;"></p>
+                        <p class="photo-description" id="caption-{i}-{m_idx}" style="display:none;"></p>
                         <button class="edit-button" onclick="togglePhotoEdit(this, {i}, \'{m_filename}\')" style="display:none;">Edit Caption</button>
                     '''
                 else:
                     photo_card_content = f'''
-                        <p class="photo-description" id="caption-{i}-{m_filename}"></p>
+                        <p class="photo-description" id="caption-{i}-{m_idx}"></p>
                         <button class="edit-button" onclick="togglePhotoEdit(this, {i}, \'{m_filename}\')">Edit Caption</button>
                     '''
 
                 images_html += f"""
-                <div class="photo-card" id="photo-{i}-{m_filename}" data-filename="{m_filename}">
+                <div class="photo-card" id="photo-{i}-{m_idx}" data-filename="{m_filename}" data-m-idx="{m_idx}">
                     {media_tag}
                     <div class="photo-info">
-                        <p class="photo-filename">{m_filename}</p>
+                        <p class="photo-filename">{html.escape(display_label)}</p>
                         {photo_card_content}
                     </div>
-                    <button class="delete-photo-btn" onclick="deletePhoto({i}, '{m_filename}')">×</button>
+                    <button class="delete-photo-btn" onclick="deletePhoto({i}, {m_idx}, '{m_filename}')">×</button>
                 </div>"""
 
             templates_html = ""
@@ -526,8 +546,11 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                             filter: '.add-photo-card',
                             preventOnFilter: true,
                             onEnd: function (evt) {{
-                                const newOrder = Array.from(evt.to.querySelectorAll('.photo-card')).map(card => card.dataset.filename);
-                                postAction('/reorder_photos', {{ index: parseInt(itemIndex), photo_order: newOrder }});
+                                const newOrderIndices = Array.from(evt.to.querySelectorAll('.photo-card')).map(card => card.dataset.mIdx);
+                                postAction('/reorder_photos', {{ index: parseInt(itemIndex), photo_order_indices: newOrderIndices }})
+                                .then(r => {{
+                                    if(r.ok) location.reload();
+                                }});
                             }}
                         }});
                     }});
@@ -545,11 +568,11 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                     }}
                 }}
 
-                function deletePhoto(index, filename) {{
+                function deletePhoto(index, mediaIdx, filename) {{
                     if(confirm('Hapus media ini?')) {{
-                        postAction('/delete_photo', {{ index, filename }})
+                        postAction('/delete_photo', {{ index: index, media_idx: mediaIdx, filename: filename }})
                         .then(r => {{
-                            if(r.ok) document.getElementById(`photo-${{index}}-${{filename}}`).remove();
+                            if(r.ok) location.reload();
                         }});
                     }}
                 }}
@@ -796,6 +819,11 @@ def save_drafts(drafts):
 def human_delay(min_sec=2, max_sec=5):
     time.sleep(random.uniform(min_sec, max_sec))
 
+def natural_sort_key(s):
+    """Sort key for natural sorting (e.g. 01.jpg, 02.jpg, 10.jpg)."""
+    basename = os.path.splitext(os.path.basename(s))[0]
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', basename)]
+
 def get_media_files(path):
     valid_ext = (".mp4", ".jpg", ".png", ".jpeg", ".webp")
     if os.path.isfile(path):
@@ -804,15 +832,11 @@ def get_media_files(path):
     media = []
     if os.path.exists(path):
         for f in os.listdir(path):
-            if f.lower().endswith(valid_ext):
+            if f.lower().endswith(valid_ext) and not f.lower().startswith(("bersambung", "tamat")):
                 file_path = os.path.abspath(os.path.join(path, f))
                 media.append(file_path)
     
-    # Logika Cerdas: 
-    # 1. Kelompokkan file yang dimodifikasi dalam rentang waktu yang sama (misal per 60 detik).
-    # 2. Di dalam kelompok waktu tersebut, urutkan berdasarkan Nama (A-Z).
-    # 3. File yang disisipkan jauh lebih baru akan otomatis berada di kelompok waktu terakhir (paling bawah).
-    media.sort(key=lambda x: (int(os.path.getmtime(x) / 60), os.path.basename(x).lower()))
+    media.sort(key=natural_sort_key)
     return media
 
 def update_post_status(post_path, status, progress=0):
@@ -879,7 +903,9 @@ def get_caption_text(post_path):
     
     # Fallback ke Nama Folder/File jika meta kosong
     clean_name = os.path.splitext(item_name)[0] if is_file else item_name
-    default_title = clean_name.replace("_", " ").replace("-", " ").title()
+    # Bersihkan prefix angka indeks (misal: "0001. ") dan nomor episode (misal: "EP. 1 - ")
+    clean_title = re.sub(r"^(?:[A-Z0-9]+\.\s*)?(?:EP\.\s*\d+(?:\s*[a-z])?\s*[-–]\s*)?", "", clean_name, flags=re.IGNORECASE).strip()
+    default_title = clean_title if clean_title else clean_name.replace("_", " ").replace("-", " ").title()
     
     parts = []
     # 1. Judul
@@ -902,6 +928,103 @@ def get_caption_text(post_path):
     
     return "".join(parts).strip()
 
+def group_stories_only(pending_items):
+    pattern = r"^(?:[A-Z0-9]+\.\s*)?(?:EP\.\s*\d+(?:\s*[a-z])?\s*[-–]\s*)?(.*?)(?:\s*\(\d+\))?$"
+    groups = {}
+    for p in pending_items:
+        if os.path.isdir(p):
+            bname = os.path.basename(p)
+            m = re.match(pattern, bname, re.IGNORECASE)
+            title = m.group(1).strip() if m else bname
+        else:
+            title = os.path.splitext(os.path.basename(p))[0]
+            
+        if title not in groups:
+            groups[title] = []
+        groups[title].append(p)
+
+    story_items = []
+    story_map = {}
+    for title, paths in groups.items():
+        # Urutkan folder episode secara natural (EP. 1, EP. 2, dst.)
+        sorted_paths = sorted(paths, key=natural_sort_key)
+        all_media = []
+
+        for p in sorted_paths:
+            if os.path.isdir(p):
+                # Urutkan gambar di dalam tiap folder episode secara natural (01.jpg, 02.jpg, dst.)
+                m_files = sorted([
+                    os.path.join(p, f) for f in os.listdir(p) 
+                    if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp")) 
+                    and not f.lower().startswith(("bersambung", "tamat"))
+                ], key=natural_sort_key)
+                
+                all_media.extend(m_files)
+            else:
+                all_media.append(p)
+                
+        if not all_media: continue
+        story_key = sorted_paths[0]
+        story_items.append(story_key)
+        story_map[story_key] = {
+            "caption": title,
+            "media_files": all_media,
+            "schedule_time": None,
+            "photo_captions": {},
+            "display_name": title,
+            "story_title": title,
+            "original_paths": sorted_paths
+        }
+    return story_items, story_map, groups
+
+def split_stories_into_parts(story_items, story_map):
+    new_items = []
+    new_map = {}
+    for key in story_items:
+        data = story_map[key]
+        title = data.get("caption") or data.get("story_title")
+        all_media = data["media_files"]
+        paths = data["original_paths"]
+        
+        chunk_size = 20
+        chunks = [all_media[i:i + chunk_size] for i in range(0, len(all_media), chunk_size)]
+        
+        for idx, chunk in enumerate(chunks, 1):
+            is_last = (idx == len(chunks))
+            img_name = "tamat.jpg" if is_last else "bersambung.jpg"
+            parent_dir = os.path.dirname(paths[0])
+            parent_suffix = os.path.join(parent_dir, img_name)
+            fallback_suffix = f"/storage/emulated/0/ProjectKURKUR/{img_name}"
+            suffix_img = parent_suffix if os.path.exists(parent_suffix) else fallback_suffix
+            
+            final_chunk = list(chunk)
+            if os.path.exists(suffix_img):
+                final_chunk.append(suffix_img)
+                
+            caption_title = f"{title} ({idx})" if len(chunks) > 1 else title
+            part_key = f"{paths[0]}__part_{idx}" if len(chunks) > 1 else paths[0]
+            
+            new_items.append(part_key)
+            new_map[part_key] = {
+                "caption": caption_title,
+                "media_files": final_chunk,
+                "schedule_time": data.get("schedule_time"),
+                "photo_captions": data.get("photo_captions", {}),
+                "display_name": caption_title,
+                "story_title": title,
+                "original_paths": paths
+            }
+            
+    return new_items, new_map
+
+def get_title_from_path(p):
+    pattern = r"^(?:[A-Z0-9]+\.\s*)?(?:EP\.\s*\d+(?:\s*[a-z])?\s*[-–]\s*)?(.*?)(?:\s*\(\d+\))?$"
+    if os.path.isdir(p):
+        bname = os.path.basename(p)
+        m = re.match(pattern, bname, re.IGNORECASE)
+        return m.group(1).strip() if m else bname
+    return os.path.splitext(os.path.basename(p))[0]
+
 def run_album_post_mode(args=None):
     clear_screen()
     print_header("📚 MODE POSTINGAN ALBUM")
@@ -921,8 +1044,10 @@ def run_album_post_mode(args=None):
         print(f"{TAG_ERROR} Folder tidak valid!")
         return
 
-    # DETEKSI PENDING (Smarter Detection: Files and Folders as separate posts)
-    all_items = sorted([os.path.join(parent_folder, f) for f in os.listdir(parent_folder)])
+    print(f"\n{TAG_INFO} Memindai folder dan menyiapkan daftar episode...")
+
+    # DETEKSI PENDING (Smarter Detection: Skip folder/file yang sudah memiliki marker uploadedfb)
+    all_items = sorted([os.path.join(parent_folder, f) for f in os.listdir(parent_folder)], key=natural_sort_key)
     pending_items = []
     
     for item in all_items:
@@ -933,9 +1058,25 @@ def run_album_post_mode(args=None):
         is_media = any(item.lower().endswith(ext) for ext in (".mp4", ".jpg", ".png", ".jpeg", ".webp"))
         
         if is_dir:
-            # Jika folder, cek marker di dalamnya
-            if not os.path.exists(os.path.join(item, "uploadedfb.txt")):
-                # Pastikan ada media di dalam folder tersebut
+            # 1. Cek apakah folder ini sendiri memiliki marker uploadedfb.txt
+            if os.path.exists(os.path.join(item, "uploadedfb.txt")):
+                continue
+            
+            # 2. Cek apakah ini folder episode atau folder seri yang berisi subfolder episode
+            sub_dirs = [os.path.join(item, d) for d in os.listdir(item) if os.path.isdir(os.path.join(item, d))]
+            if sub_dirs:
+                # Jika berisi subfolder episode, filter hanya subfolder yang belum di-upload
+                has_valid_sub = False
+                for sd in sub_dirs:
+                    if not os.path.exists(os.path.join(sd, "uploadedfb.txt")):
+                        if any(f.lower().endswith((".mp4", ".jpg", ".png", ".jpeg", ".webp")) for f in os.listdir(sd)):
+                            pending_items.append(sd)
+                            has_valid_sub = True
+                # Jika tidak ada subfolder tapi ada foto di folder ini
+                if not has_valid_sub and any(f.lower().endswith((".mp4", ".jpg", ".png", ".jpeg", ".webp")) for f in os.listdir(item)):
+                    pending_items.append(item)
+            else:
+                # Jika folder episode langsung (isi foto), cek media
                 if any(f.lower().endswith((".mp4", ".jpg", ".png", ".jpeg", ".webp")) for f in os.listdir(item)):
                     pending_items.append(item)
         elif is_media:
@@ -947,8 +1088,11 @@ def run_album_post_mode(args=None):
         print(f"\n{TAG_WARNING} Tidak ada konten baru.")
         return
     
-    # ADVANCED SELECTION (Logic ala reference script)
-    print(f"\n{TAG_SUCCESS} Terdeteksi {CLR_BOLD}{CLR_GREEN}{len(pending_items)}{CLR_RESET} album/postingan siap diproses.")
+    # 1. GROUPING CERITA UTUH (Disajikan per judul seri komik)
+    story_items, story_map, story_groups = group_stories_only(pending_items)
+    story_titles = list(story_groups.keys())
+
+    print(f"\n{TAG_SUCCESS} Terdeteksi {CLR_BOLD}{CLR_GREEN}{len(story_titles)}{CLR_RESET} judul seri komik.")
     
     upload_modes = [
         "1. Unggah Semua Album (sesuai urutan)",
@@ -959,32 +1103,30 @@ def run_album_post_mode(args=None):
     sel_mode_idx = select_menu_option("PILIH MODE UNGGAHAN", upload_modes)
     sel_mode = str(sel_mode_idx + 1)
 
-    if sel_mode == '2':
+    if sel_mode == '1':
+        pass
+    elif sel_mode == '2':
         try:
-            num_random = int(input(f"\n{TAG_INPUT} Berapa album acak (maks: {len(pending_items)})? ").strip())
-            pending_items = random.sample(pending_items, min(num_random, len(pending_items)))
+            num_random = int(input(f"\n{TAG_INPUT} Berapa seri judul acak (maks: {len(story_titles)})? ").strip())
+            chosen_titles = random.sample(story_titles, min(num_random, len(story_titles)))
+            story_items = [s for s in story_items if story_map[s]['story_title'] in chosen_titles]
         except ValueError:
             print(f"   {TAG_ERROR} Input tidak valid, menggunakan semua album.")
     elif sel_mode == '3':
-        print_menu_box("PILIH ALBUM", [f"{idx+1}. {os.path.basename(p)}" for idx, p in enumerate(pending_items)])
+        menu_items = []
+        for idx, t in enumerate(story_titles, 1):
+            s_key = [k for k in story_items if story_map[k]['story_title'] == t][0]
+            total_photos = len(story_map[s_key]['media_files'])
+            menu_items.append(f"{idx}. {t} ({total_photos} foto utuh)")
+
+        print_menu_box("PILIH ALBUM CERITA", menu_items)
         choices = input(f"\n{TAG_INPUT} Masukkan nomor (pisahkan dengan koma, cth: 1,3,5): ").strip()
         indices = [int(i.strip()) - 1 for i in choices.split(',') if i.strip().isdigit()]
-        pending_items = [pending_items[i] for i in indices if 0 <= i < len(pending_items)]
+        selected_titles = set(story_titles[i] for i in indices if 0 <= i < len(story_titles))
+        story_items = [s for s in story_items if story_map[s]['story_title'] in selected_titles]
     elif sel_mode == '4':
-        pending_items = random.sample(pending_items, 1)
-    
-    # SORTING DASHBOARD (Hanya jika mode 1 dan ada file order)
-    if sel_mode in ['', '1']:
-        order_path = os.path.join(parent_folder, "queue_order.json")
-        if os.path.exists(order_path):
-            try:
-                with open(order_path, "r", encoding="utf-8") as f:
-                    custom_order = json.load(f)
-                p_map = {os.path.basename(p): p for p in pending_items}
-                ordered = [p_map[name] for name in custom_order if name in p_map]
-                pending_items = ordered + [p for p in pending_items if p not in ordered]
-                print(f"{TAG_INFO} Menggunakan urutan Dashboard.")
-            except: pass
+        chosen_title = random.choice(story_titles)
+        story_items = [s for s in story_items if story_map[s]['story_title'] == chosen_title]
 
     # STRATEGY
     sched_options = [
@@ -1032,25 +1174,81 @@ def run_album_post_mode(args=None):
     is_preview = (preview_choice == '2')
     is_web_preview = (preview_choice == '3')
 
-    # DATA PREP
-    item_data_map = {}
+    # PRATINJAU WEB INTERAKTIF (Berdasarkan Judul Cerita Utuh)
+    if is_web_preview:
+        story_items, story_map = run_interactive_preview_web(story_items, story_map)
+        if not story_items: return
+
+    # 2. SEKARANG KITA SPLIT PER 20 FOTO (Auto-Split + Bersambung / Tamat)
+    pending_items, item_data_map = split_stories_into_parts(story_items, story_map)
+
+    # OPSI PENANGANAN PART (> 20 FOTO / MULTI-PART)
+    multi_part_count = len(pending_items)
+    if multi_part_count > 1:
+        print(f"\n{TAG_WARNING} Terdeteksi total {CLR_BOLD}{multi_part_count}{CLR_RESET} Part postingan hasil split yang akan diunggah.")
+        split_options = [
+            "1. Unggah SEMUA Part bertahap sesuai interval jadwal.",
+            "2. Unggah SEBAGIAN Part saja (sisanya simpan otomatis ke Part Sisa / pending_parts.json)."
+        ]
+        split_idx = select_menu_option("PILIH METODE UPLOAD PART", split_options)
+        
+        if split_idx == 1: # Pilih Opsi 2 (Sebagian)
+            try:
+                max_parts = int(input(f"\n{TAG_INPUT} Mau unggah berapa Part sekarang (1 - {multi_part_count})? ").strip())
+            except ValueError:
+                max_parts = 1
+                
+            parts_to_upload = pending_items[:max_parts]
+            parts_to_save = pending_items[max_parts:]
+            
+            if parts_to_save:
+                pending = load_pending_parts()
+                for p_key in parts_to_save:
+                    data_save = item_data_map[p_key]
+                    pending[p_key] = {
+                        "path": p_key,
+                        "remaining_photos": [os.path.basename(f) for f in data_save['media_files']],
+                        "caption": data_save['caption'],
+                        "profile": sel_profile
+                    }
+                save_pending_parts(pending)
+                print(f"   {TAG_SUCCESS} {len(parts_to_upload)} Part akan diunggah sekarang. {len(parts_to_save)} Part sisa disimpan ke pending_parts.json.")
+            
+            pending_items = parts_to_upload
+
+    # PENETAPAN JADWAL & PROTEKSI 28 HARI
+    max_allowed_date = datetime.now() + timedelta(days=28)
+    valid_pending_items = []
+    overflow_pending_items = []
+
     temp_time = current_time_obj
     for p in pending_items:
         sched_str = None
         if choice in ['1', '2'] and temp_time:
-            # Tambahkan jitter 1-5 menit (ala reference script)
             jitter_time = temp_time + timedelta(minutes=random.randint(1, 5))
+            if jitter_time > max_allowed_date:
+                overflow_pending_items.append(p)
+                continue
             sched_str = jitter_time.strftime("%Y-%m-%d %H:%M")
             temp_time += timedelta(minutes=interval_mins)
-        elif choice == '3':
-            pass
         
-        item_data_map[p] = {
-            'caption': get_caption_text(p),
-            'media_files': get_media_files(p),
-            'schedule_time': sched_str,
-            'photo_captions': load_photo_captions(p)
-        }
+        item_data_map[p]['schedule_time'] = sched_str
+        valid_pending_items.append(p)
+
+    if overflow_pending_items:
+        print(f"\n{TAG_WARNING} {len(overflow_pending_items)} Part terdeteksi melebihi batas jadwal Facebook (28 hari).")
+        pending = load_pending_parts()
+        for p_key in overflow_pending_items:
+            data_save = item_data_map[p_key]
+            pending[p_key] = {
+                "path": p_key,
+                "remaining_photos": [os.path.basename(f) for f in data_save['media_files']],
+                "caption": data_save['caption'],
+                "profile": sel_profile
+            }
+        save_pending_parts(pending)
+        print(f"   {TAG_SUCCESS} {len(overflow_pending_items)} Part yang melebihi 28 hari otomatis disimpan ke pending_parts.json.")
+        pending_items = valid_pending_items
 
     if is_web_preview:
         pending_items, item_data_map = run_interactive_preview_web(pending_items, item_data_map)
@@ -1079,44 +1277,8 @@ def run_album_post_mode(args=None):
             caption = data.get('caption')
             sched_str = data.get('schedule_time')
             
-            # SPLITTING LOGIC (Logic ala reference script)
-            if len(media_files) > 20:
-                print(f"\n{TAG_WARNING} Folder '{os.path.basename(item)}' punya {CLR_BOLD}{len(media_files)}{CLR_RESET} foto (lebih dari 20).")
-                split_options = [
-                    "1. Tetap upload semua sekaligus (mungkin gagal/lama).",
-                    "2. Upload Part 1 (20 foto), sisanya simpan sebagai Part Sisa.",
-                    "3. Upload sejumlah (n) foto, sisanya simpan sebagai Part Sisa."
-                ]
-                split_idx = select_menu_option(f"PILIH TINDAKAN FOTO > 20 ({len(media_files)} foto)", split_options)
-                split_choice = str(split_idx + 1)
-                
-                if split_choice in ['2', '3']:
-                    try:
-                        n = 20 if split_choice == '2' else int(input(f"\n{TAG_INPUT} Masukkan jumlah foto: ").strip())
-                    except ValueError:
-                        n = 20
-                    part1_files = media_files[:n]
-                    bersambung_path = "/storage/emulated/0/ProjectKURKUR/bersambung.jpg"
-                    if os.path.exists(bersambung_path):
-                        part1_files.append(bersambung_path)
-                        print(f"   {TAG_SUCCESS} Otomatis menambahkan bersambung.jpg ke akhir Part 1.")
-                    part2_files = [os.path.basename(f) for f in media_files[n:]]
-                    
-                    if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=part1_files, dashboard=dashboard):
-                        pending = load_pending_parts()
-                        p2_key = f"{os.path.basename(item)} (Part 2)"
-                        pending[p2_key] = {
-                            "path": item,
-                            "remaining_photos": part2_files,
-                            "caption": caption,
-                            "profile": sel_profile
-                        }
-                        save_pending_parts(pending)
-                        print(f"\n{TAG_SUCCESS} Part 1 Berhasil. Sisa {len(part2_files)} foto disimpan ke Part Sisa.")
-                    continue
-
             if choice == '3':
-                res = get_datetime_input(f"Jadwal untuk {os.path.basename(item)}")
+                res = get_datetime_input(f"Jadwal untuk {data.get('display_name', os.path.basename(item))}")
                 sched_str = None if res == 'now' else res.strftime("%Y-%m-%d %H:%M")
             
             if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=media_files, dashboard=dashboard):
@@ -1154,15 +1316,24 @@ def run_pending_parts_mode():
         return
 
     pending_list = list(pending.items())
-    pending_options = [f"{i+1}. {key} ({len(data['remaining_photos'])} foto)" for i, (key, data) in enumerate(pending_list)] + ["0. Batal"]
+    pending_options = [f"{i+1}. {key} ({len(data['remaining_photos'])} foto)" for i, (key, data) in enumerate(pending_list)]
+    pending_options.append(f"{len(pending_list)+1}. 🗑️  Bersihkan / Hapus Semua Part Pending")
+    pending_options.append("0. Batal")
+    
     idx = select_menu_option("DAFTAR PART SISA PENDING", pending_options)
-    if idx == len(pending_list): # "0. Batal"
+    if idx == len(pending_options) - 1: # "0. Batal"
+        return
+    elif idx == len(pending_list): # Clear all
+        save_pending_parts({})
+        print(f"\n{TAG_SUCCESS} {CLR_BOLD}{CLR_GREEN}Semua data part pending berhasil dibersihkan!{CLR_RESET}")
+        time.sleep(1.5)
         return
     
     sel_key, sel_data = pending_list[idx]
     
     # Logic to upload remaining photos (similar to run_album_post_mode but simplified)
     profile = sel_data.get('profile', 'Default')
+    item_path = sel_data['path']
     print(f"\n{TAG_INFO} Melanjutkan '{CLR_BOLD}{sel_key}{CLR_RESET}' menggunakan profil '{CLR_BOLD}{profile}{CLR_RESET}'...")
     
     is_headless = input(f"\n{TAG_INPUT} Gunakan Mode Headless (n VNC)? (y/n, default n): ").lower() == 'y'
@@ -1176,7 +1347,6 @@ def run_pending_parts_mode():
         
         # We need to temporarily recreate the folder structure or handle the files directly
         # In this implementation, we assume the folder still exists
-        item_path = sel_data['path']
         media_files = [os.path.join(item_path, f) for f in sel_data['remaining_photos']]
         
         # Override get_media_files to use our specific list for this task
@@ -1577,7 +1747,7 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
 
                 driver.execute_script("arguments[0].click();", target_opt)
                 log_step("Menu 'Opsi penjadwalan' terbuka.", dashboard, is_success=True)
-                time.sleep(2)
+                time.sleep(5)
 
                 # --- PENGATURAN OTOMATIS (SPECIFIC TAB SEQUENCE) ---
                 log_step(f"Menyiapkan waktu posting: {schedule_time}", dashboard)
@@ -1588,80 +1758,117 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
 
                 actions = ActionChains(driver)
                 
-                # 1. TAB Pertama (Abaikan)
-                log_step("Navigasi TAB 1 (Abaikan)...", dashboard)
-                actions.send_keys(Keys.TAB).perform()
-                time.sleep(1)
+                try:
+                    # 1. TAB Pertama (Abaikan)
+                    log_step("Navigasi TAB 1 (Abaikan)...", dashboard)
+                    actions.send_keys(Keys.TAB).perform()
+                    time.sleep(1.2)
 
-                # 2. Navigasi ke kotak Tanggal (TAB 2)
-                log_step("Navigasi TAB 2 (Tanggal)...", dashboard)
-                actions.send_keys(Keys.TAB).perform()
-                time.sleep(0.8)
-                active_el = driver.switch_to.active_element
-                active_el.send_keys(Keys.CONTROL + "a")
-                active_el.send_keys(Keys.BACKSPACE)
-                active_el.send_keys(date_val)
-                time.sleep(0.5)
-                active_el.send_keys(Keys.ENTER)
-                log_step("Tanggal di-ENTER.", dashboard, is_success=True)
-                time.sleep(0.8)
+                    # 2. Navigasi ke kotak Tanggal (TAB 2)
+                    log_step("Navigasi TAB 2 (Tanggal)...", dashboard)
+                    actions.send_keys(Keys.TAB).perform()
+                    time.sleep(1.2)
+                    
+                    active_el = driver.switch_to.active_element
+                    active_el.send_keys(Keys.CONTROL + "a")
+                    active_el.send_keys(Keys.BACKSPACE)
+                    active_el.send_keys(date_val)
+                    time.sleep(0.5)
+                    active_el.send_keys(Keys.ENTER)
+                    log_step("Tanggal di-ENTER.", dashboard, is_success=True)
+                    time.sleep(1.2)
 
-                # 3. Navigasi ke kotak Waktu (TAB 3)
-                log_step("Navigasi TAB 3 (Waktu)...", dashboard)
-                actions.send_keys(Keys.TAB).perform()
-                time.sleep(0.8)
-                active_el = driver.switch_to.active_element
-                active_el.send_keys(Keys.CONTROL + "a")
-                active_el.send_keys(Keys.BACKSPACE)
-                active_el.send_keys(time_val)
-                time.sleep(0.5)
-                active_el.send_keys(Keys.ENTER)
-                log_step("Jam di-ENTER.", dashboard, is_success=True)
-                time.sleep(0.8)
+                    # 3. Navigasi ke kotak Waktu (TAB 3)
+                    log_step("Navigasi TAB 3 (Waktu)...", dashboard)
+                    actions.send_keys(Keys.TAB).perform()
+                    time.sleep(1.2)
+                    
+                    active_el = driver.switch_to.active_element
+                    active_el.send_keys(Keys.CONTROL + "a")
+                    active_el.send_keys(Keys.BACKSPACE)
+                    active_el.send_keys(time_val)
+                    time.sleep(0.5)
+                    active_el.send_keys(Keys.ENTER)
+                    log_step("Jam di-ENTER.", dashboard, is_success=True)
+                    time.sleep(1.2)
 
-                # 4. Navigasi ke tombol Konfirmasi (TAB 4)
-                log_step("Navigasi TAB 4 (Konfirmasi)...", dashboard)
-                actions.send_keys(Keys.TAB).perform()
-                time.sleep(1)
-                active_el = driver.switch_to.active_element
-                log_step(f"Menekan ENTER pada: {active_el.text or 'Tombol Biru'}", dashboard)
-                active_el.send_keys(Keys.ENTER)
-                time.sleep(2)
-
-                # 4. Klik Jadwalkan FINAL
-                log_step("Mengklik tombol 'Jadwalkan' final...", dashboard)
-                final_xpath = "//div[@role='dialog']//div[@role='button']//span[text()='Jadwalkan' or text()='Schedule']"
-                final_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, final_xpath)))
-                driver.execute_script("arguments[0].click();", final_btn)
-            
-            log_step("Menunggu konfirmasi akhir...", dashboard)
-            
-            # --- PENANGANAN DIALOG WHATSAPP / SHARE ---
-            time.sleep(5)
-            try:
-                whatsapp_xpath = "//div[@role='dialog']//span[contains(text(), 'WhatsApp')] | //div[@role='dialog']//span[contains(text(), 'Bagikan')] | //div[@role='dialog']//div[@aria-label='Tutup' or @aria-label='Close']"
-                dialogs = driver.find_elements(By.XPATH, whatsapp_xpath)
-                if dialogs:
-                    log_step("Mendeteksi dialog konfirmasi/WhatsApp, menutup...", dashboard)
-                    ActionChains(driver).send_keys(Keys.ESCAPE).perform()
+                    # 4. Navigasi ke tombol Konfirmasi (TAB 4)
+                    log_step("Navigasi TAB 4 (Konfirmasi)...", dashboard)
+                    actions.send_keys(Keys.TAB).perform()
+                    time.sleep(1.5)
+                    
+                    active_el = driver.switch_to.active_element
+                    log_step(f"Menekan ENTER pada: {active_el.text or 'Tombol Biru'}", dashboard)
+                    active_el.send_keys(Keys.ENTER)
                     time.sleep(2)
-            except: pass
+
+                    # 4. Klik Jadwalkan FINAL
+                    log_step("Mengklik tombol 'Jadwalkan' final...", dashboard)
+                    final_xpath = (
+                        "//div[@role='dialog']//div[@role='button']//span[text()='Jadwalkan' or text()='Schedule' or text()='Posting' or text()='Post' or text()='Kirim']"
+                        "| //div[@role='dialog']//div[@aria-label='Jadwalkan' or @aria-label='Schedule' or @aria-label='Posting' or @aria-label='Post']"
+                    )
+                    try:
+                        final_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, final_xpath)))
+                        driver.execute_script("arguments[0].click();", final_btn)
+                    except:
+                        ActionChains(driver).send_keys(Keys.ENTER).perform()
+                except Exception as e:
+                    log_step(f"Proses klik jadwal selesai/dilewati...", dashboard)
+
+            log_step("Menunggu Facebook memproses & mengeluarkan notifikasi (1-5 detik)...", dashboard)
+            time.sleep(3) # Beri jeda 3 detik agar Facebook sempat memunculkan popup
             
-            # Marker Upload
-            marker_file = post_path + ".uploadedfb" if is_file else os.path.join(post_path, "uploadedfb.txt")
-            with open(marker_file, "w") as f:
-                if schedule_time:
-                    f.write(f"Dijadwalkan: {schedule_time}")
-                else:
-                    f.write(f"Diposting: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-            
-            log_step(f"Postingan BERHASIL {'dijadwalkan' if schedule_time else 'diposting'}.", dashboard, is_success=True)
-            update_post_status(post_path, "SELESAI!", 100)
-            if dashboard:
-                dashboard.current_job["scheduling"] = "Completed"
-                dashboard.statuses[post_path] = "success"
-                dashboard.success_count += 1
-                dashboard.render()
+            # Deteksi Toast / Popup / Notifikasi "Postingan Anda dijadwalkan" / "Lihat"
+            success_detected = False
+            start_check = time.time()
+            while time.time() - start_check < 20:
+                try:
+                    # 1. Cari elemen teks toast Facebook "dijadwalkan", "scheduled", "Lihat", "View"
+                    toast_els = driver.find_elements(By.XPATH, "//*[contains(text(), 'dijadwalkan') or contains(text(), 'scheduled') or contains(text(), 'Lihat') or contains(text(), 'View') or contains(text(), 'diterbitkan') or contains(text(), 'published')]")
+                    if toast_els:
+                        log_step("Notifikasi konfirmasi Facebook terdeteksi!", dashboard)
+                        success_detected = True
+                        break
+                    
+                    # 2. Cek apakah dialog postingan sudah tertutup (tanda sukses)
+                    dialogs = driver.find_elements(By.XPATH, "//div[@role='dialog']")
+                    if not dialogs:
+                        success_detected = True
+                        break
+                except:
+                    pass
+                time.sleep(1)
+
+            if success_detected:
+                marker_file = post_path + ".uploadedfb" if is_file else os.path.join(post_path, "uploadedfb.txt")
+                with open(marker_file, "w") as f:
+                    if schedule_time:
+                        f.write(f"Dijadwalkan: {schedule_time}")
+                    else:
+                        f.write(f"Diposting: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+                
+                log_step(f"Postingan BERHASIL {'dijadwalkan' if schedule_time else 'diposting'}.", dashboard, is_success=True)
+                update_post_status(post_path, "SELESAI!", 100)
+                if dashboard:
+                    dashboard.current_job["upload"] = "Completed"
+                    dashboard.current_job["caption"] = "Injected"
+                    dashboard.current_job["scheduling"] = "Completed"
+                    if dashboard.statuses.get(post_path) != "success":
+                        dashboard.statuses[post_path] = "success"
+                        dashboard.success_count += 1
+                    dashboard.render()
+                
+                status_file = (post_path + ".status") if is_file else os.path.join(post_path, "upload_status.json")
+                if os.path.exists(status_file): os.remove(status_file)
+                
+                try:
+                    log_step("Merefresh halaman Facebook...", dashboard)
+                    driver.refresh()
+                    time.sleep(5)
+                except: pass
+                
+                return True
             # Hapus file status setelah sukses
             status_file = (post_path + ".status") if is_file else os.path.join(post_path, "upload_status.json")
             if os.path.exists(status_file): os.remove(status_file)
@@ -1676,6 +1883,27 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
             return True
 
         except Exception as e:
+            # Jika notifikasi konfirmasi terdeteksi, abaikan exception kecil dan anggap SUKSES!
+            if 'success_detected' in locals() and success_detected:
+                log_step(f"Postingan BERHASIL dijadwalkan (terdeteksi via notifikasi).", dashboard, is_success=True)
+                update_post_status(post_path, "SELESAI!", 100)
+                if dashboard:
+                    dashboard.current_job["upload"] = "Completed"
+                    dashboard.current_job["caption"] = "Injected"
+                    dashboard.current_job["scheduling"] = "Completed"
+                    if dashboard.statuses.get(post_path) != "success":
+                        dashboard.statuses[post_path] = "success"
+                        dashboard.success_count += 1
+                    dashboard.render()
+                marker_file = post_path + ".uploadedfb" if is_file else os.path.join(post_path, "uploadedfb.txt")
+                with open(marker_file, "w") as f:
+                    f.write(f"Dijadwalkan: {schedule_time}")
+                try:
+                    driver.refresh()
+                    time.sleep(5)
+                except: pass
+                return True
+
             update_post_status(post_path, f"Gagal: {str(e)}", 0)
             print(f"    {TAG_ERROR} Gagal: {e}")
             if dashboard:
@@ -1689,6 +1917,8 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
             return False
 
     except Exception as e:
+        if 'success_detected' in locals() and success_detected:
+            return True
         update_post_status(post_path, f"Error: {str(e)}", 0)
         print(f"    {TAG_ERROR} Error: {e}")
         if dashboard:
@@ -1902,7 +2132,7 @@ if __name__ == "__main__":
     if any(f.lower().endswith((".mp4", ".jpg", ".png", ".jpeg", ".webp")) for f in os.listdir(parent_folder)):
         pending_items = [parent_folder]
     else:
-        items = sorted([os.path.join(parent_folder, f) for f in os.listdir(parent_folder)])
+        items = sorted([os.path.join(parent_folder, f) for f in os.listdir(parent_folder)], key=natural_sort_key)
         pending_items = []
         for item in items:
             if os.path.isdir(item):
@@ -1997,8 +2227,27 @@ if __name__ == "__main__":
     # --- TAHAP PREVIEW WEB (JIKA DIPILIH) ---
     item_data_map = {}
     temp_time = current_time_obj
+    
+    # Custom mapping for target dates
+    target_dates_map = {
+        "aku-yang-orangnyaa-gak-enakan-be-like": "2026-08-18 18:55",
+        "ya-maap-mungkin-itu-si-martin-malaikat-magang-lagi-gak-fokus": "2026-08-22 18:55",
+        "anak-kesayangan-berulah": "2026-08-23 18:55",
+        "kegagalan-di-bengkel": "2026-08-26 18:55",
+        "itu-kenapa-sih": "2026-09-04 18:55",
+        "orang-yang-suka-dengan-sepur": "2026-09-06 18:55",
+        "momen-lucu-saat-di-wahana-taman-bermain": "2026-09-09 18:55",
+        "namanya-juga-cowok-sih": "2026-09-11 18:55",
+        "yakin-dah-itu-pasti-banteng-betina": "2026-09-12 18:55"
+    }
+
     for p in pending_items:
-        sched_str = temp_time.strftime("%Y-%m-%d %H:%M") if temp_time else None
+        item_name = os.path.basename(p)
+        if item_name in target_dates_map:
+            sched_str = target_dates_map[item_name]
+        else:
+            sched_str = temp_time.strftime("%Y-%m-%d %H:%M") if temp_time else None
+            
         item_data_map[p] = {
             'caption': get_caption_text(p),
             'media_files': get_media_files(p),

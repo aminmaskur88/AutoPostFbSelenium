@@ -59,7 +59,7 @@ def ensure_vnc_running():
         try:
             # Jalankan vncserver di display :1
             # Kita gunakan geometry standar dan localhost saja untuk keamanan
-            subprocess.run(["vncserver", "-localhost", ":1", "-geometry", "1280x720"], 
+            subprocess.run(["vncserver", "-localhost", ":1", "-geometry", "1600x2560"], 
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(2) # Beri jeda agar server siap
             print("[+] VNC Server berhasil dinyalakan.")
@@ -115,6 +115,7 @@ def setup_driver(profile_path, headless=False):
         chrome_options.add_argument("--headless=new")
 
     # Optimasi & Anti-bot
+    chrome_options.add_argument("--start-maximized")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
@@ -139,4 +140,16 @@ def setup_driver(profile_path, headless=False):
         driver = webdriver.Chrome(options=chrome_options)
     
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    
+    # Wrap driver.quit to add 1 minute delay before VNC window closes
+    original_quit = driver.quit
+    def custom_quit():
+        if not headless:
+            print("\n⏳ Menunggu 1 menit sebelum menutup jendela VNC (browser)...")
+            import time
+            time.sleep(60)
+        original_quit()
+    driver.quit = custom_quit
+    
     return driver
+

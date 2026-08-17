@@ -33,6 +33,12 @@ error_log = []
 
 def clear_screen():
     """Membersihkan layar terminal."""
+    try:
+        sys.stdout.write("\033[r")     # Reset scroll region ke default
+        sys.stdout.write("\033[?25h")   # Tampilkan kursor jika tersembunyi
+        sys.stdout.flush()
+    except:
+        pass
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def log_message(message: str, is_error: bool = False):
