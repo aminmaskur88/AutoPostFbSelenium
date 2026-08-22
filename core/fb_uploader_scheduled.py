@@ -1245,8 +1245,8 @@ def run_album_post_mode(args=None):
                 for p_key in parts_to_save:
                     data_save = item_data_map[p_key]
                     pending[p_key] = {
-                        "path": p_key,
-                        "remaining_photos": [os.path.basename(f) for f in data_save['media_files']],
+                        "path": data_save.get('original_paths', [p_key])[0] if isinstance(data_save.get('original_paths'), list) else p_key,
+                        "remaining_photos": data_save['media_files'],
                         "caption": data_save['caption'],
                         "profile": sel_profile
                     }
@@ -1386,7 +1386,7 @@ def run_pending_parts_mode():
         
         # We need to temporarily recreate the folder structure or handle the files directly
         # In this implementation, we assume the folder still exists
-        media_files = [os.path.join(item_path, f) for f in sel_data['remaining_photos']]
+        media_files = [f if os.isabs(f) else os.path.join(item_path, f) for f in sel_data['remaining_photos']]
         
         # Override get_media_files to use our specific list for this task
         # We'll pass media_files directly to run_fb_scheduled_task by modifying it to accept custom_media
