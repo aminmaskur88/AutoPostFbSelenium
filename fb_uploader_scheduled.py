@@ -2008,23 +2008,41 @@ def run_single_post_mode():
 def main_menu():
     while True:
         clear_screen()
+        story_script_exists = os.path.exists("fb_story_scheduled.py")
+        
         options = [
             "1. 📚 Mode Postingan Album",
             "2. 🗓️  Kelola Draf Tersimpan",
-            "3. 🔄 Lanjutkan Upload Part Sisa",
-            "4. 🖼️  Mode Postingan Tunggal (WIP)",
-            "5. 🔄 Kelola Profil Browser",
-            "0. 🚪 Keluar"
+            "3. 🔄 Lanjutkan Upload Part Sisa"
         ]
+        
+        if story_script_exists:
+            options.append("4. 📖 Mode Upload Story Facebook")
+            options.append("5. 🔄 Kelola Profil Browser")
+        else:
+            options.append("4. 🔄 Kelola Profil Browser")
+            
+        options.append("0. 🚪 Keluar")
+        
         choice_idx = select_menu_option("🚀 FACEBOOK AUTO-POSTER TERPADU 🚀", options)
         choice = options[choice_idx].split('.')[0].strip()
         
-        if choice == '1': run_album_post_mode()
-        elif choice == '2': run_draft_mode()
-        elif choice == '3': run_pending_parts_mode()
-        elif choice == '4': run_single_post_mode()
-        elif choice == '5': run_profile_mode()
-        elif choice == '0': break
+        if choice == '1': 
+            run_album_post_mode()
+        elif choice == '2': 
+            run_draft_mode()
+        elif choice == '3': 
+            run_pending_parts_mode()
+        elif choice == '4':
+            if story_script_exists:
+                import subprocess
+                subprocess.run([sys.executable, "fb_story_scheduled.py"])
+            else:
+                run_profile_mode()
+        elif choice == '5' and story_script_exists:
+            run_profile_mode()
+        elif choice == '0': 
+            break
         
         if choice != '0': input(f"\n{TAG_INPUT} Tekan Enter untuk kembali ke menu utama...")
 
