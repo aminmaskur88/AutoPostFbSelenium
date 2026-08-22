@@ -1386,7 +1386,7 @@ def run_pending_parts_mode():
         
         # We need to temporarily recreate the folder structure or handle the files directly
         # In this implementation, we assume the folder still exists
-        media_files = [f if os.isabs(f) else os.path.join(item_path, f) for f in sel_data['remaining_photos']]
+        media_files = [f if os.path.isabs(f) else os.path.join(item_path, f) for f in sel_data['remaining_photos']]
         
         # Override get_media_files to use our specific list for this task
         # We'll pass media_files directly to run_fb_scheduled_task by modifying it to accept custom_media
