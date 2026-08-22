@@ -21,6 +21,10 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
+# BASE DIRECTORY
+CORE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(CORE_DIR)
+
 from utils import setup_driver, cleanup_profile
 from fb_uploader import manual_fallback
 
@@ -895,11 +899,26 @@ def get_caption_text(post_path):
     meta = {}
     if not is_file:
         meta_file = os.path.join(post_path, "post_meta.json")
+        plan_file = os.path.join(post_path, "plan_gemini.json")
         if os.path.exists(meta_file):
             try:
                 with open(meta_file, 'r', encoding='utf-8') as f:
                     meta = json.load(f)
             except: pass
+        elif os.path.exists(plan_file):
+            try:
+                with open(plan_file, 'r', encoding='utf-8') as f:
+                    meta = json.load(f)
+            except: pass
+        else:
+            # Cek jika ada file .txt di dalam folder (misal: caption.txt atau deskripsi.txt)
+            txt_files = [f for f in os.listdir(post_path) if f.lower().endswith('.txt') and not f.lower().startswith('uploaded')]
+            if txt_files:
+                txt_path = os.path.join(post_path, txt_files[0])
+                try:
+                    with open(txt_path, 'r', encoding='utf-8') as f:
+                        return f.read().strip()
+                except: pass
     
     # Fallback ke Nama Folder/File jika meta kosong
     clean_name = os.path.splitext(item_name)[0] if is_file else item_name
@@ -966,8 +985,12 @@ def group_stories_only(pending_items):
         if not all_media: continue
         story_key = sorted_paths[0]
         story_items.append(story_key)
+        
+        # Ekstrak caption lengkap menggunakan get_caption_text jika postingan berupa folder
+        full_caption = get_caption_text(story_key)
+        
         story_map[story_key] = {
-            "caption": title,
+            "caption": full_caption,
             "media_files": all_media,
             "schedule_time": None,
             "photo_captions": {},
@@ -994,14 +1017,28 @@ def split_stories_into_parts(story_items, story_map):
             img_name = "tamat.jpg" if is_last else "bersambung.jpg"
             parent_dir = os.path.dirname(paths[0])
             parent_suffix = os.path.join(parent_dir, img_name)
+            project_suffix = os.path.join(BASE_DIR, img_name)
             fallback_suffix = f"/storage/emulated/0/ProjectKURKUR/{img_name}"
-            suffix_img = parent_suffix if os.path.exists(parent_suffix) else fallback_suffix
+            if os.path.exists(parent_suffix):
+                suffix_img = parent_suffix
+            elif os.path.exists(project_suffix):
+                suffix_img = project_suffix
+            else:
+                suffix_img = fallback_suffix
             
+            # Cek apakah postingan berasal dari folder artikel/konten web (memiliki post_meta.json atau plan_gemini.json)
+            has_article_meta = False
+            if os.path.isdir(paths[0]):
+                has_article_meta = os.path.exists(os.path.join(paths[0], "post_meta.json")) or os.path.exists(os.path.join(paths[0], "plan_gemini.json"))
+
             final_chunk = list(chunk)
-            if os.path.exists(suffix_img):
+            if not has_article_meta and os.path.exists(suffix_img):
                 final_chunk.append(suffix_img)
                 
-            caption_title = f"{title} ({idx})" if len(chunks) > 1 else title
+            if len(chunks) > 1:
+                caption_title = f"{title} ({idx}) END" if is_last else f"{title} ({idx})"
+            else:
+                caption_title = title
             part_key = f"{paths[0]}__part_{idx}" if len(chunks) > 1 else paths[0]
             
             new_items.append(part_key)
@@ -1176,17 +1213,14 @@ def run_album_post_mode(args=None):
     is_preview = (preview_choice == '2')
     is_web_preview = (preview_choice == '3')
 
-    # PRATINJAU WEB INTERAKTIF (Berdasarkan Judul Cerita Utuh)
-    if is_web_preview:
-        story_items, story_map = run_interactive_preview_web(story_items, story_map)
-        if not story_items: return
-
-    # 2. SEKARANG KITA SPLIT PER 20 FOTO (Auto-Split + Bersambung / Tamat)
+    # 2. SPLIT PER 20 FOTO (Auto-Split + Bersambung / Tamat)
     pending_items, item_data_map = split_stories_into_parts(story_items, story_map)
 
     # OPSI PENANGANAN PART (> 20 FOTO / MULTI-PART)
+    # Cek apakah ada postingan yang di-split menjadi beberapa part (__part_)
+    has_actual_split = any("__part_" in item_key for item_key in pending_items)
     multi_part_count = len(pending_items)
-    if multi_part_count > 1:
+    if has_actual_split and multi_part_count > 1:
         print(f"\n{TAG_WARNING} Terdeteksi total {CLR_BOLD}{multi_part_count}{CLR_RESET} Part postingan hasil split yang akan diunggah.")
         split_options = [
             "1. Unggah SEMUA Part bertahap sesuai interval jadwal.",
