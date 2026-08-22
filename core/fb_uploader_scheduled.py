@@ -1983,15 +1983,29 @@ def run_profile_mode():
     clear_screen()
     print_header("🔄 KELOLA PROFIL BROWSER")
     profile_dir = os.path.join(os.getcwd(), "fb_profiles")
+    if not os.path.exists(profile_dir):
+        os.makedirs(profile_dir, exist_ok=True)
+        
     profiles = sorted([d for d in os.listdir(profile_dir) if os.path.isdir(os.path.join(profile_dir, d))])
     
     if not profiles:
         print(f"{TAG_WARNING} Tidak ada profil browser yang ditemukan.")
+        create = input(f"\n{TAG_INPUT} Ingin membuat profil & login akun baru sekarang? (y/n, default y): ").strip().lower()
+        if create != 'n':
+            import subprocess
+            fb_login_script = os.path.join(os.path.dirname(__file__), "fb_login.py")
+            subprocess.run([sys.executable, fb_login_script])
         return
 
-    profile_options = [f"{i+1}. {p}" for i, p in enumerate(profiles)] + ["0. Batal"]
+    profile_options = [f"{i+1}. {p}" for i, p in enumerate(profiles)] + [f"{len(profiles)+1}. ➕ Tambah / Login Profil Baru", "0. Batal"]
     p_idx = select_menu_option("DAFTAR PROFIL", profile_options)
-    if p_idx == len(profiles): # "0. Batal"
+    
+    if p_idx == len(profiles) + 1: # "0. Batal"
+        return
+    elif p_idx == len(profiles): # "➕ Tambah / Login Profil Baru"
+        import subprocess
+        fb_login_script = os.path.join(os.path.dirname(__file__), "fb_login.py")
+        subprocess.run([sys.executable, fb_login_script])
         return
         
     sel_profile = profiles[p_idx]
