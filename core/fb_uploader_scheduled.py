@@ -1380,7 +1380,7 @@ def run_pending_parts_mode():
     sched_str = None if res == 'now' else res.strftime("%Y-%m-%d %H:%M")
     
     os.system('cls' if os.name == 'nt' else 'clear')
-    dashboard = UploadDashboard([item_path], {item_path: {'schedule_time': sched_str}})
+    dashboard = UploadDashboard([sel_key], {sel_key: {'schedule_time': sched_str}})
     driver = setup_driver(os.path.join(os.getcwd(), "fb_profiles", profile), headless=is_headless)
     try:
         
@@ -1390,7 +1390,7 @@ def run_pending_parts_mode():
         
         # Override get_media_files to use our specific list for this task
         # We'll pass media_files directly to run_fb_scheduled_task by modifying it to accept custom_media
-        if run_fb_scheduled_task(driver, profile, item_path, sched_str, pre_caption=sel_data.get('caption'), custom_media=media_files, dashboard=dashboard):
+        if run_fb_scheduled_task(driver, profile, item_path, sched_str, pre_caption=sel_data.get('caption'), custom_media=media_files, dashboard=dashboard, task_key=sel_key):
             del pending[sel_key]
             save_pending_parts(pending)
             print(f"\n{TAG_SUCCESS} {CLR_BOLD}{CLR_GREEN}Part Sisa berhasil diproses.{CLR_RESET}")
@@ -1548,9 +1548,10 @@ def log_step(message, dashboard=None, is_success=False):
         prefix = "[✓]" if is_success else "[i]"
         print(f"    {prefix} {message}")
 
-def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, preview=False, pre_caption=None, custom_media=None, dashboard=None):
+def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, preview=False, pre_caption=None, custom_media=None, dashboard=None, task_key=None):
     wait = WebDriverWait(driver, 30)
-    item_name = os.path.basename(post_path)
+    key_for_dash = task_key if task_key else post_path
+    item_name = os.path.basename(task_key) if task_key else os.path.basename(post_path)
     is_file = os.path.isfile(post_path)
     
     media_files = custom_media if custom_media else get_media_files(post_path)
@@ -1588,7 +1589,7 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                     dashboard.current_job["caption"] = "Failed"
                     dashboard.current_job["scheduling"] = "Failed"
                     dashboard.current_job["activity"] = error_msg
-                    dashboard.statuses[post_path] = "failed"
+                    dashboard.statuses[key_for_dash] = "failed"
                     dashboard.failed_count += 1
                     dashboard.render()
                 else:
@@ -1893,8 +1894,8 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                     dashboard.current_job["upload"] = "Completed"
                     dashboard.current_job["caption"] = "Injected"
                     dashboard.current_job["scheduling"] = "Completed"
-                    if dashboard.statuses.get(post_path) != "success":
-                        dashboard.statuses[post_path] = "success"
+                    if dashboard.statuses.get(key_for_dash) != "success":
+                        dashboard.statuses[key_for_dash] = "success"
                         dashboard.success_count += 1
                     dashboard.render()
                 
@@ -1930,8 +1931,8 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                     dashboard.current_job["upload"] = "Completed"
                     dashboard.current_job["caption"] = "Injected"
                     dashboard.current_job["scheduling"] = "Completed"
-                    if dashboard.statuses.get(post_path) != "success":
-                        dashboard.statuses[post_path] = "success"
+                    if dashboard.statuses.get(key_for_dash) != "success":
+                        dashboard.statuses[key_for_dash] = "success"
                         dashboard.success_count += 1
                     dashboard.render()
                 marker_file = post_path + ".uploadedfb" if is_file else os.path.join(post_path, "uploadedfb.txt")
@@ -1949,7 +1950,7 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                 dashboard.current_job["upload"] = "Failed" if dashboard.current_job["upload"] != "Completed" else "Completed"
                 dashboard.current_job["caption"] = "Failed" if dashboard.current_job["caption"] != "Injected" else "Injected"
                 dashboard.current_job["scheduling"] = "Failed"
-                dashboard.statuses[post_path] = "failed"
+                dashboard.statuses[key_for_dash] = "failed"
                 dashboard.failed_count += 1
                 dashboard.render()
             manual_fallback(driver, "Selesaikan manual di VNC.")
@@ -1964,7 +1965,7 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
             dashboard.current_job["upload"] = "Failed" if dashboard.current_job["upload"] != "Completed" else "Completed"
             dashboard.current_job["caption"] = "Failed" if dashboard.current_job["caption"] != "Injected" else "Injected"
             dashboard.current_job["scheduling"] = "Failed"
-            dashboard.statuses[post_path] = "failed"
+            dashboard.statuses[key_for_dash] = "failed"
             dashboard.failed_count += 1
             dashboard.render()
         return False
