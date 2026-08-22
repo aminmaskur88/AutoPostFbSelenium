@@ -2008,7 +2008,8 @@ def run_single_post_mode():
 def main_menu():
     while True:
         clear_screen()
-        story_script_exists = os.path.exists("fb_story_scheduled.py")
+        story_script = os.path.join(os.path.dirname(__file__), "fb_story_scheduled.py")
+        story_script_exists = os.path.exists(story_script)
         
         options = [
             "1. 📚 Mode Postingan Album",
@@ -2036,7 +2037,7 @@ def main_menu():
         elif choice == '4':
             if story_script_exists:
                 import subprocess
-                subprocess.run([sys.executable, "fb_story_scheduled.py"])
+                subprocess.run([sys.executable, story_script])
             else:
                 run_profile_mode()
         elif choice == '5' and story_script_exists:
