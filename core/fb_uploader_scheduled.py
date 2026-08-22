@@ -1959,12 +1959,14 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
     except Exception as e:
         if 'success_detected' in locals() and success_detected:
             return True
-        update_post_status(post_path, f"Error: {str(e)}", 0)
-        print(f"    {TAG_ERROR} Error: {e}")
+        err_msg = str(e)
+        update_post_status(post_path, f"Error: {err_msg}", 0)
+        print(f"    {TAG_ERROR} Error: {err_msg}")
         if dashboard:
             dashboard.current_job["upload"] = "Failed" if dashboard.current_job["upload"] != "Completed" else "Completed"
             dashboard.current_job["caption"] = "Failed" if dashboard.current_job["caption"] != "Injected" else "Injected"
             dashboard.current_job["scheduling"] = "Failed"
+            dashboard.current_job["activity"] = f"Error: {err_msg[:35]}"
             dashboard.statuses[key_for_dash] = "failed"
             dashboard.failed_count += 1
             dashboard.render()
