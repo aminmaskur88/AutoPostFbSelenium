@@ -4,40 +4,59 @@
 [![Selenium](https://img.shields.io/badge/Selenium-Automation-green.svg)](https://www.selenium.dev/)
 [![Termux](https://img.shields.io/badge/Platform-Termux%20%7C%20PC-orange.svg)](https://termux.dev/)
 
-Aplikasi otomatisasi berbasis Python dan Selenium yang dirancang khusus untuk mengelola postingan Facebook secara massal dan cerdas. Mendukung penuh penggunaan di **Android (via Termux + VNC)** maupun **PC/Laptop**, dengan fitur optimasi profil agar ringan dijalankan di perangkat mobile.
+Aplikasi otomatisasi berbasis Python dan Selenium yang dirancang khusus untuk mengelola postingan **Facebook Album & Facebook Story** secara massal dan cerdas. Mendukung penuh penggunaan di **Android (via Termux + VNC)** maupun **PC/Laptop**, dengan optimasi khusus agar sangat ringan dijalankan di perangkat mobile.
 
-Aplikasi ini memudahkan Anda mengunggah konten (video/gambar) dari folder terpisah ke banyak akun/profil Facebook dengan sistem penjadwalan (interval), dashboard web, dan deteksi anti-bot yang canggih.
+Aplikasi ini memudahkan Anda mengunggah konten (video/gambar) dari folder terpisah ke banyak akun/profil Facebook dengan sistem penjadwalan fleksibel, perekam tombol interaktif, web dashboard, dan deteksi anti-bot yang canggih.
 
 ---
 
 ## ✨ Fitur Utama
 
-*   **🌐 Web Dashboard Management:** Kelola antrean postingan, ubah urutan (drag & drop), dan pantau status profil melalui antarmuka web yang modern.
+*   **📖 Facebook Story Auto-Uploader:** Fitur khusus unggah Story Facebook dengan pilihan interval fleksibel (menit, jam, atau jam target harian) dan perekam tombol otomatis.
+*   **📚 Facebook Album Auto-Uploader:** Penjadwalan postingan album komik/seri secara otomatis dan cerdas.
+*   **⌨️ Navigasi Keyboard Interaktif:** Pilihan menu mendukung tombol panah `[↑/↓]` dan `[Enter]` untuk kemudahan akses di Termux/Terminal.
+*   **🌐 Web Dashboard Management:** Kelola antrean postingan, ubah urutan (drag & drop), dan pantau status profil melalui antarmuka web modern.
+*   **👤 Multi-Profile Management:** Kelola profil browser (Buka, Ganti Nama, Hapus, atau Tambah Baru) dengan mudah di folder `fb_profiles/`.
+*   **⏹️ Interactive Window Control:** Kemudahan paksa tutup browser VNC instan hanya dengan menekan `[ENTER]`.
 *   **📱 Support Termux & PC:** Deteksi otomatis environment untuk konfigurasi driver yang tepat (Chromium di Termux atau Chrome di PC).
-*   **👤 Multi-Profile Management:** Mengelola banyak akun Facebook dengan folder profil terpisah (`fb_profiles/`) agar sesi login tetap awet.
 *   **🤖 Smart Automation:**
     *   **Interactive Web Preview:** Pratinjau postingan sebelum diunggah melalui browser lokal.
     *   **Sticky Footer Progress:** Tampilan progress bar yang tetap di bawah terminal saat proses berjalan.
     *   **Human-Like Interaction:** Simulasi scroll, jeda acak, dan simulasi pengetikan untuk meminimalisir deteksi bot.
-    *   **Drag & Drop Media Injection:** Teknik suntik file media langsung untuk menghindari kendala UI dialog di Android.
-*   **📂 Folder-Based Posting:** Postingan disusun per-folder yang berisi media dan metadata (`post_meta.json`).
-*   **⏳ Advanced Scheduling:** Mendukung posting langsung ("Post Now") atau dijadwalkan ke masa depan ("Scheduled").
-*   **🧹 Auto-Cleanup Profile:** Membersihkan cache, shader, dan log secara otomatis untuk menghemat ruang penyimpanan HP.
+    *   **Drag & Drop Media Injection:** Injeksi file media langsung untuk menghindari kendala UI dialog di Android.
 
 ---
 
-## 📂 Struktur Proyek & Panduan File
+## 📂 Struktur Proyek & Panduan Direktori
 
-| File / Folder | Deskripsi |
-| :--- | :--- |
-| **`web_dashboard.py`** | 🖥️ **Web UI:** Dashboard berbasis Flask untuk mengelola antrean dan profil secara visual. |
-| **`fb_uploader_scheduled.py`** | 📅 **Advanced Uploader:** Mesin utama dengan fitur penjadwalan, progress bar, dan pratinjau interaktif. |
-| **`fb_uploader.py`** | ⚙️ **Standard Engine:** Skrip uploader versi standar untuk posting manual/auto. |
-| **`fb_uploader_mobile.py`** | 📱 **Mobile Edition:** Menggunakan `m.facebook.com` dan injeksi cookies (Sangat ringan & bisa Headless). |
-| **`fb_login.py`** | 🔑 **Login Helper:** Digunakan untuk login pertama kali dan mengelola profil browser. |
-| **`utils.py`** | 🛠️ **Core Utils:** Konfigurasi driver, deteksi IP LAN, dan fungsi pembersihan. |
-| **`config.json`** | 📋 **Configuration:** Menyimpan pemetaan path folder konten untuk setiap profil. |
-| **`fb_profiles/`** | 👤 **User Data:** Penyimpanan sesi browser per akun (Jangan dihapus). |
+```text
+AutoPostFbSelenium/
+│
+├── 🚀 main.py                     # Entrypoint Utama (Cukup jalankan ini)
+│
+├── 📂 core/                       # Folder Logika & Modul Utama Bot
+│   ├── utils.py                   # Setup driver, anti-bot, & VNC helper
+│   ├── fb_uploader_scheduled.py   # Mesin utama postingan Album & Jadwal
+│   ├── fb_story_scheduled.py     # Mesin utama postingan Facebook Story
+│   ├── fb_uploader.py             # Engine standar upload
+│   ├── fb_uploader_mobile.py      # Engine mobile edition (m.facebook.com)
+│   ├── fb_login.py                # Helper pembuat profil & login baru
+│   └── web_dashboard.py           # Web UI Dashboard Flask
+│
+├── 📂 tools/                      # Script Pembantu / Developer Tools
+│   ├── get_xpath.py               # Inspektor XPath elemen interaktif
+│   ├── record_fb_coords.py        # Perekam koordinat klik VNC
+│   ├── open_browser.py            # Pembuka profil browser visual
+│   └── open_chromium.py           # Browser launcher dasar
+│
+├── 📂 archive/                    # Script Referensi & Backup
+│   └── reference_auto_poster.py
+│
+├── 📄 fb_coords.json             # File konfigurasi koordinat klik
+├── 📄 fb_story_button.json        # Rekaman elemen tombol Story FB
+├── 📄 README.md                   # Dokumentasi proyek
+└── 📄 GEMINI.md                   # Petunjuk tanggal penting & aturan proyek
+```
 
 ---
 
@@ -62,36 +81,28 @@ pip install selenium flask pillow
 
 ## 💻 Cara Penggunaan
 
-### 1️⃣ Setup Profil (Login Pertama Kali)
-Jalankan `fb_login.py` untuk mendaftarkan akun baru:
+### 1️⃣ Menjalankan Aplikasi Utama (Rekomendasi)
+Jalankan satu perintah ini untuk mengakses semua fitur melalui menu terpadu:
 ```bash
-python fb_login.py
+python main.py
 ```
-*   Masukkan nama akun (misal: `AkunUtama`).
-*   Browser akan terbuka (di VNC), silakan login manual sampai masuk beranda. Sesi Anda akan tersimpan secara otomatis.
+* Navigasi menu menggunakan **tombol panah `[↑/↓]`** dan tekan **`[Enter]`** untuk memilih.
 
-### 2️⃣ Menggunakan Web Dashboard (Opsional tapi Direkomendasikan)
-Dashboard memudahkan Anda mengatur urutan postingan sebelum dijalankan:
-```bash
-python web_dashboard.py
-```
-*   Buka URL yang muncul di terminal (misal: `http://192.168.1.5:5000`).
-*   Pilih profil dan folder konten. Anda bisa **Drag & Drop** kotak postingan untuk mengubah urutan.
+### 2️⃣ Fitur Story Facebook Auto-Uploader
+Pilih menu **📖 Mode Upload Story Facebook** di `main.py`:
+* Pilih akun profil target.
+* Masukkan path folder/file gambar atau video (`.mp4`, `.jpg`, `.png`, `.webp`).
+* Pilih strategi interval:
+  1. *Jeda Menit* (cth: setiap 2 menit sekali).
+  2. *Jeda Jam* (cth: setiap 2 jam sekali).
+  3. *Jam Spesifik Harian* (cth: `08:00, 12:00, 17:00, 20:00`).
 
-### 3️⃣ Menjalankan Scheduled Uploader (Utama)
-Ini adalah skrip paling canggih untuk proses posting otomatis:
-```bash
-python fb_uploader_scheduled.py
-```
-*   **Fitur:** Progress bar "Sticky Footer", pilihan penjadwalan, dan **Interactive Web Preview** (Anda bisa edit caption/waktu sebelum benar-benar di-upload).
-
-### 4️⃣ Alternatif Mobile/Headless (Ringan)
-Gunakan jika Anda ingin proses berjalan di latar belakang tanpa VNC:
-```bash
-python fb_uploader_mobile.py
-```
-*   Letakkan file cookie `.json` ke dalam folder `Cookies/`.
-*   Skrip akan berjalan via tampilan mobile Facebook (`m.facebook.com`).
+### 3️⃣ Kelola Profil Browser
+Pilih menu **🔄 Kelola Profil Browser** di `main.py`:
+* **Buka Browser**: Membuka browser visual di VNC Viewer.
+* **Ganti Nama Profil**: Mengubah nama folder profil secara aman.
+* **Hapus Profil**: Menghapus data akun & profil browser.
+* **Tambah / Login Profil Baru**: Secara otomatis menjalankan `fb_login.py` untuk pendaftaran akun baru.
 
 ---
 
@@ -99,35 +110,14 @@ python fb_uploader_mobile.py
 
 Jika menggunakan mode GUI (VNC), ikuti langkah ini:
 
-1.  **Nyalakan VNC Server:** `vncserver -localhost :1 -geometry 1280x720`
-2.  **Hubungkan VNC Viewer:** Buka aplikasi VNC Viewer di HP, arahkan ke `127.0.0.1:5901`.
-3.  **Jalankan Skrip:** Kembali ke Termux dan jalankan uploader pilihan Anda.
-
----
-
-## 🛠️ Command Line Arguments (Automasi)
-
-`fb_uploader_scheduled.py` mendukung argumen untuk automasi script lain:
-```bash
-python fb_uploader_scheduled.py --profile "Akun1" --path "/sdcard/konten" --limit 5 --headless
-```
-
----
-
-## 🛠️ Developer & Debugging Tools
-
-Beberapa skrip pembantu untuk kebutuhan pengembangan atau perbaikan:
-
-| File | Fungsi |
-| :--- | :--- |
-| **`get_xpath.py`** | Membantu mencari XPath elemen secara interaktif jika struktur web Facebook berubah. |
-| **`record_fb_coords.py`** | Mencatat koordinat klik untuk optimasi elemen yang sulit dijangkau Selenium standar. |
-| **`open_browser.py`** | Membuka browser dengan profil tertentu tanpa menjalankan uploader (untuk cek manual). |
+1. **Nyalakan VNC Server:** `vncserver -localhost :1 -geometry 1280x720`
+2. **Hubungkan VNC Viewer:** Buka aplikasi VNC Viewer di HP, arahkan ke `127.0.0.1:5901`.
+3. **Jalankan Skrip:** Kembali ke Termux dan jalankan `python main.py`.
 
 ---
 
 ## 🤖 Kontribusi & Ucapan Terima Kasih
 Dikembangkan dengan bantuan kecerdasan buatan:
-*   **Gemini AI (Google)** - Arsitektur sistem, optimasi logika Selenium, dan penyusunan dokumentasi.
+* **Gemini AI (Google)** - Arsitektur sistem, optimasi logika Selenium, dan penyusunan dokumentasi.
 
 **License:** MIT | **Author:** Amin Maskur
