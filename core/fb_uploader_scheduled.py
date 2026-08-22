@@ -1035,8 +1035,11 @@ def split_stories_into_parts(story_items, story_map):
             if not has_article_meta and os.path.exists(suffix_img):
                 final_chunk.append(suffix_img)
                 
+            # Bersihkan suffix episode/part lama (seperti " (1)", " (1) END", " END") dari title agar tidak ganda
+            clean_base_title = re.sub(r"\s*\(\d+\)(?:\s*END)?|\s*END$", "", title, flags=re.IGNORECASE).strip()
+            
             if len(chunks) > 1:
-                caption_title = f"{title} ({idx}) END" if is_last else f"{title} ({idx})"
+                caption_title = f"{clean_base_title} ({idx}) END" if is_last else f"{clean_base_title} ({idx})"
             else:
                 caption_title = title
             part_key = f"{paths[0]}__part_{idx}" if len(chunks) > 1 else paths[0]
