@@ -1376,21 +1376,46 @@ def run_pending_parts_mode():
     print(f"\n{TAG_INFO} Melanjutkan '{CLR_BOLD}{sel_key}{CLR_RESET}' menggunakan profil '{CLR_BOLD}{profile}{CLR_RESET}'...")
     
     is_headless = input(f"\n{TAG_INPUT} Gunakan Mode Headless (n VNC)? (y/n, default n): ").lower() == 'y'
+    
+    preview_options = [
+        "1. Tanpa Pratinjau",
+        "2. Pratinjau Web Interaktif (Edit Caption / Urut Foto)"
+    ]
+    preview_idx = select_menu_option("PILIHAN PRATINJAU", preview_options)
+    is_web_preview = (preview_idx == 1)
+
     res = get_datetime_input("Jadwal")
     sched_str = None if res == 'now' else res.strftime("%Y-%m-%d %H:%M")
+    
+    raw_media = sel_data['remaining_photos']
+    media_files = [f if os.path.isabs(f) else os.path.join(item_path, f) for f in raw_media]
+    media_files = [m for m in media_files if os.path.exists(m)]
+    
+    caption_text = sel_data.get('caption', '')
+    
+    if is_web_preview:
+        s_items = [sel_key]
+        s_map = {
+            sel_key: {
+                "caption": caption_text,
+                "media_files": media_files,
+                "schedule_time": sched_str,
+                "photo_captions": {},
+                "display_name": sel_key,
+                "story_title": sel_key,
+                "original_paths": [item_path]
+            }
+        }
+        s_items, s_map = run_interactive_preview_web(s_items, s_map)
+        if not s_items: return
+        caption_text = s_map[sel_key]['caption']
+        media_files = s_map[sel_key]['media_files']
     
     os.system('cls' if os.name == 'nt' else 'clear')
     dashboard = UploadDashboard([sel_key], {sel_key: {'schedule_time': sched_str}})
     driver = setup_driver(os.path.join(os.getcwd(), "fb_profiles", profile), headless=is_headless)
     try:
-        
-        # We need to temporarily recreate the folder structure or handle the files directly
-        # In this implementation, we assume the folder still exists
-        media_files = [f if os.path.isabs(f) else os.path.join(item_path, f) for f in sel_data['remaining_photos']]
-        
-        # Override get_media_files to use our specific list for this task
-        # We'll pass media_files directly to run_fb_scheduled_task by modifying it to accept custom_media
-        if run_fb_scheduled_task(driver, profile, item_path, sched_str, pre_caption=sel_data.get('caption'), custom_media=media_files, dashboard=dashboard, task_key=sel_key):
+        if run_fb_scheduled_task(driver, profile, item_path, sched_str, pre_caption=caption_text, custom_media=media_files, dashboard=dashboard, task_key=sel_key):
             del pending[sel_key]
             save_pending_parts(pending)
             print(f"\n{TAG_SUCCESS} {CLR_BOLD}{CLR_GREEN}Part Sisa berhasil diproses.{CLR_RESET}")
