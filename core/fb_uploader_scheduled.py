@@ -1554,7 +1554,10 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
     item_name = os.path.basename(task_key) if task_key else os.path.basename(post_path)
     is_file = os.path.isfile(post_path)
     
-    media_files = custom_media if custom_media else get_media_files(post_path)
+    raw_media = custom_media if custom_media else get_media_files(post_path)
+    media_files = [m if os.path.isabs(m) else os.path.join(post_path, m) for m in raw_media]
+    media_files = [m for m in media_files if os.path.exists(m)]
+    
     if not media_files:
         print(f"    {TAG_WARNING} Skip: Tidak ada media di {item_name}")
         return False
