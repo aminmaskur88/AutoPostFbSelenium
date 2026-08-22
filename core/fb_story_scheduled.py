@@ -290,7 +290,7 @@ def run_story_uploader_mode():
         print(f"{TAG_ERROR} Profil browser kosong! Sila buat profil dahulu.")
         return
 
-    profile_options = [f"{i+1}. {p}" for i, p in enumerate(profiles)] + ["0. ↩️  Batal / Kembali"]
+    profile_options = [f"{i+1}. {p}" for i, p in enumerate(profiles)] + ["0. Batal / Kembali"]
     sel_idx = select_menu_option("PILIH PROFIL FACEBOOK", profile_options)
     if sel_idx == len(profiles):
         return
