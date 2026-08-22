@@ -2009,10 +2009,63 @@ def run_profile_mode():
         return
         
     sel_profile = profiles[p_idx]
-    print(f"\n{TAG_INFO} Membuka browser untuk profil '{CLR_BOLD}{sel_profile}{CLR_RESET}'...")
-    driver = setup_driver(os.path.join(os.getcwd(), "fb_profiles", sel_profile), headless=False)
-    input(f"\n{TAG_WARNING} Tekan ENTER di sini jika sudah selesai mengecek browser untuk menutup...")
-    driver.quit()
+    
+    # Sub-menu aksi untuk profil yang dipilih
+    action_options = [
+        "1. 🌐 BUKA BROWSER",
+        "2. ✏️  GANTI NAMA PROFIL",
+        "3. 🗑️  HAPUS PROFIL",
+        "0. Batal"
+    ]
+    act_idx = select_menu_option(f"AKSI PROFIL: {sel_profile}", action_options)
+    
+    if act_idx == 0: # Buka Browser
+        print(f"\n{TAG_INFO} Membuka browser untuk profil '{CLR_BOLD}{sel_profile}{CLR_RESET}'...")
+        driver = setup_driver(os.path.join(profile_dir, sel_profile), headless=False)
+        input(f"\n{TAG_WARNING} Tekan ENTER di sini jika sudah selesai mengecek browser untuk menutup...")
+        driver.quit()
+    elif act_idx == 1: # Ganti Nama
+        new_name = input(f"\n{TAG_INPUT} Masukkan nama baru untuk profil '{sel_profile}': ").strip()
+        if new_name and new_name != sel_profile:
+            old_path = os.path.join(profile_dir, sel_profile)
+            new_path = os.path.join(profile_dir, new_name)
+            if os.path.exists(new_path):
+                print(f"{TAG_ERROR} Nama profil '{new_name}' sudah ada!")
+            else:
+                try:
+                    os.rename(old_path, new_path)
+                    print(f"{TAG_SUCCESS} Profil berhasil diubah nama menjadi '{new_name}'.")
+                    
+                    # Update config.json jika ada
+                    config_file = os.path.join(os.getcwd(), "config.json")
+                    if os.path.exists(config_file):
+                        with open(config_file, "r", encoding="utf-8") as f:
+                            cfg = json.load(f)
+                        if sel_profile in cfg:
+                            cfg[new_name] = cfg.pop(sel_profile)
+                            with open(config_file, "w", encoding="utf-8") as f:
+                                json.dump(cfg, f, indent=4)
+                except Exception as ex:
+                    print(f"{TAG_ERROR} Gagal mengubah nama profil: {ex}")
+    elif act_idx == 2: # Hapus Profil
+        confirm = input(f"\n{TAG_WARNING} Yakin ingin MENGHAPUS profil '{sel_profile}' beserta seluruh datanya? (y/n): ").strip().lower()
+        if confirm == 'y':
+            try:
+                target_path = os.path.join(profile_dir, sel_profile)
+                shutil.rmtree(target_path)
+                print(f"{TAG_SUCCESS} Profil '{sel_profile}' berhasil dihapus.")
+                
+                # Update config.json jika ada
+                config_file = os.path.join(os.getcwd(), "config.json")
+                if os.path.exists(config_file):
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                    if sel_profile in cfg:
+                        del cfg[sel_profile]
+                        with open(config_file, "w", encoding="utf-8") as f:
+                            json.dump(cfg, f, indent=4)
+            except Exception as ex:
+                print(f"{TAG_ERROR} Gagal menghapus profil: {ex}")
 
 def run_single_post_mode():
     print("\n🖼️ Mode Postingan Tunggal (WIP)")
