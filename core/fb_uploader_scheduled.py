@@ -25,6 +25,14 @@ from selenium.webdriver.common.action_chains import ActionChains
 CORE_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(CORE_DIR)
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
+
 from utils import setup_driver, cleanup_profile
 from fb_uploader import manual_fallback
 
@@ -723,30 +731,52 @@ def clear_screen():
 
 def getch():
     import sys
-    try:
-        import tty
-        import termios
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
+    if sys.platform == "win32":
+        import msvcrt
+        ch = msvcrt.getch()
+        if ch in (b'\x00', b'\xe0'):
+            ch2 = msvcrt.getch()
+            if ch2 == b'H':
+                return 'up'
+            elif ch2 == b'P':
+                return 'down'
+            elif ch2 == b'K':
+                return 'left'
+            elif ch2 == b'M':
+                return 'right'
+            return 'special'
+        elif ch in (b'\r', b'\n'):
+            return '\r'
+        else:
+            try:
+                return ch.decode('utf-8', errors='ignore')
+            except Exception:
+                return ch.decode('latin1', errors='ignore')
+    else:
         try:
-            tty.setraw(fd)
-            ch = sys.stdin.read(1)
-            if ch == '\x1b':
-                ch2 = sys.stdin.read(1)
-                if ch2 == '[':
-                    ch3 = sys.stdin.read(1)
-                    if ch3 == 'A':
-                        return 'up'
-                    elif ch3 == 'B':
-                        return 'down'
-                    else:
-                        return 'esc'
-                return 'esc'
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        return ch
-    except Exception:
-        return sys.stdin.read(1)
+            import tty
+            import termios
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                ch = sys.stdin.read(1)
+                if ch == '\x1b':
+                    ch2 = sys.stdin.read(1)
+                    if ch2 == '[':
+                        ch3 = sys.stdin.read(1)
+                        if ch3 == 'A':
+                            return 'up'
+                        elif ch3 == 'B':
+                            return 'down'
+                        else:
+                            return 'esc'
+                    return 'esc'
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            return ch
+        except Exception:
+            return sys.stdin.read(1)
 
 def select_menu_option(title, options, default_index=0):
     import re

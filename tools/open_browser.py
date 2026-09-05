@@ -23,7 +23,6 @@ def setup_visible_browser(profile_path=None):
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument('--disable-software-rasterizer')
-    options.add_argument('--remote-debugging-pipe')
     
     # Gunakan resolusi desktop agar sesuai dengan fb_uploader_scheduled.py
     options.add_argument('--window-size=1280,800')

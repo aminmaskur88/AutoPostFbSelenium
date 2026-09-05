@@ -104,6 +104,7 @@ def setup_driver(profile_path, headless=False):
     if not headless:
         ensure_vnc_running()
         
+    profile_path = os.path.abspath(profile_path)
     chrome_options = Options()
     if CHROME_PATH:
         chrome_options.binary_location = CHROME_PATH
@@ -121,7 +122,6 @@ def setup_driver(profile_path, headless=False):
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--disable-software-rasterizer")
-    chrome_options.add_argument("--remote-debugging-pipe")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
     
@@ -141,15 +141,15 @@ def setup_driver(profile_path, headless=False):
     
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     
-    # Wrap driver.quit to allow manual ENTER skip or wait 1 minute before VNC window closes
+    # Wrap driver.quit to allow manual ENTER skip or wait 1 minute before VNC window closes in Termux
     original_quit = driver.quit
     def custom_quit():
-        if not headless:
-            import select
+        if not headless and IS_TERMUX:
+            import sys
             print("\n⏳ Jendela browser siap ditutup.")
             print("➜ Tekan ENTER di sini untuk PAKSA MENUTUP browser sekarang (atau tunggu 1 menit)...")
             try:
-                # Menggunakan select untuk memantau input ENTER non-blocking selama 60 detik
+                import select
                 rlist, _, _ = select.select([sys.stdin], [], [], 60)
                 if rlist:
                     sys.stdin.readline()
