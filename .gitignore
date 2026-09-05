@@ -17,6 +17,7 @@ tiktok_profile/
 Cookies/
 config.json
 uploadedfb.txt
+pending_parts.json
 .gemini/
 
 # OS / IDE
