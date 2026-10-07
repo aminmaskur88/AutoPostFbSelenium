@@ -117,6 +117,15 @@ def setup_driver(profile_path, headless=False):
 
     # Optimasi & Anti-bot
     chrome_options.add_argument("--start-maximized")
+    
+    # Set default page zoom to ~50% (tanpa mengecilkan UI Chrome)
+    prefs = {
+        "partition.default_zoom_level": {
+            "x": -3.8017840169239308
+        }
+    }
+    chrome_options.add_experimental_option("prefs", prefs)
+
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")

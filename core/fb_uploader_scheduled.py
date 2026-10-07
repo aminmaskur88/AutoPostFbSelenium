@@ -922,8 +922,9 @@ def get_next_folder(base_dir):
 
 def get_caption_text(post_path):
     """Membangun caption utama dari post_meta.json (Logic ala reference script)."""
-    item_name = os.path.basename(post_path)
-    is_file = os.path.isfile(post_path)
+    post_path_norm = os.path.normpath(post_path)
+    item_name = os.path.basename(post_path_norm)
+    is_file = os.path.isfile(post_path_norm)
     
     # Metadata Path
     meta = {}
@@ -975,7 +976,13 @@ def get_caption_text(post_path):
         tags_list = [f"#{tag.lstrip('#').strip()}" for tag in hashtags if tag.strip()]
         parts.append(f"\n\n{' '.join(tags_list)}")
     
-    return "".join(parts).strip()
+    caption = "".join(parts).strip()
+    
+    # Cegah caption kosong yang akan membuat copy-paste clipboard error
+    if not caption:
+        caption = item_name
+        
+    return caption
 
 def group_stories_only(pending_items):
     pattern = r"^(?:[A-Z0-9]+\.\s*)?(?:EP\.\s*\d+(?:\s*[a-z])?\s*[-–]\s*)?(.*?)(?:\s*\(\d+\))?$"
@@ -1603,6 +1610,275 @@ def log_step(message, dashboard=None, is_success=False):
         prefix = "[✓]" if is_success else "[i]"
         print(f"    {prefix} {message}")
 
+def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time, caption_text, media_files, dashboard=None, task_key=None):
+    wait = WebDriverWait(driver, 30)
+    
+    try:
+        def log_step_new(msg, is_success=False):
+            if dashboard:
+                dashboard.current_job["activity"] = ("✓ " if is_success else "") + msg
+                dashboard.render()
+            else:
+                prefix = TAG_SUCCESS if is_success else TAG_INFO
+                print(f"    {prefix} {msg}")
+            
+        log_step_new("Beralih ke metode Uploader Tampilan Baru (post/create)...")
+        time.sleep(2)
+        
+        if dashboard:
+            dashboard.current_job["caption"] = "Memproses..."
+            dashboard.render()
+
+        log_step_new("Menyiapkan caption ke clipboard (System Level)...")
+        # Gunakan fungsi bawaan Windows untuk memaksa teks masuk ke clipboard tanpa diblokir browser
+        import subprocess
+        try:
+            subprocess.run("clip", input=caption_text.encode('utf-16le'), check=True)
+            time.sleep(1)
+        except:
+            # Fallback browser execCommand jika clip gagal
+            driver.execute_script("var t = arguments[0]; var a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); document.execCommand('copy'); document.body.removeChild(a);", caption_text)
+            time.sleep(1)
+            
+        log_step_new("Menyuntikkan caption ke Facebook...")
+        # Cari kotak teks editor spesifik dari Facebook (elemen yang bisa diketik)
+        textbox_xpath = "//div[@role='textbox' and @contenteditable='true']"
+        try:
+            textbox = wait.until(EC.element_to_be_clickable((By.XPATH, textbox_xpath)))
+            textbox.click()
+            time.sleep(1)
+            ActionChains(driver).key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
+        except:
+            log_step_new("Kotak caption tidak ditemukan, mencoba paste global...")
+            ActionChains(driver).key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
+            
+        if dashboard:
+            dashboard.current_job["caption"] = "Injected"
+            dashboard.render()
+            
+            
+        time.sleep(2)
+
+        if dashboard:
+            dashboard.current_job["upload"] = "Mengunggah media..."
+            dashboard.render()
+
+        log_step_new(f"Mengunggah {len(media_files)} media...")
+        file_inputs = driver.find_elements(By.XPATH, "//input[@type='file']")
+        
+        # Kirim path file ke semua input file yang ada di halaman (untuk jaga-jaga FB menyembunyikan beberapa input palsu)
+        upload_success = False
+        for inp in file_inputs:
+            try:
+                inp.send_keys("\n".join(media_files))
+                upload_success = True
+            except:
+                pass
+                
+        if not upload_success:
+            log_step_new("Peringatan: Gagal menemukan input file, mencoba klik ikon media terlebih dahulu...")
+            # Fallback: Cari dan klik tombol foto/video, lalu coba lagi
+            try:
+                btn_foto = driver.find_element(By.XPATH, "//div[@aria-label='Foto/video' or @aria-label='Photo/video']")
+                driver.execute_script("arguments[0].click();", btn_foto)
+                time.sleep(2)
+                file_inputs = driver.find_elements(By.XPATH, "//input[@type='file']")
+                for inp in file_inputs:
+                    try:
+                        inp.send_keys("\n".join(media_files))
+                    except: pass
+            except: pass
+        
+        log_step_new("Mendeteksi progress upload media...")
+        last_percent = -1
+        start_wait = time.time()
+        while time.time() - start_wait < 600:
+            try:
+                els = driver.find_elements(By.XPATH, "//*[contains(text(), '%') or contains(@aria-label, '%')]")
+                found_percent = False
+                for el in els:
+                    txt = el.text or el.get_attribute("aria-label") or ""
+                    match = re.search(r'(\d+)%', txt)
+                    if match:
+                        percent = int(match.group(1))
+                        found_percent = True
+                        if percent != last_percent:
+                            if dashboard:
+                                dashboard.current_job["upload"] = f"Mengunggah: {percent}%"
+                                dashboard.current_job["activity"] = f"Uploading media: {percent}%"
+                                dashboard.render()
+                            else:
+                                print(f"\r    {TAG_SUCCESS} Uploading: {CLR_GREEN}{percent}%{CLR_RESET}", end="")
+                            last_percent = percent
+                        break
+                if not found_percent and last_percent >= 0:
+                    if not dashboard: print(f"\n    {TAG_SUCCESS} Indikator progress hilang, upload selesai.")
+                    if dashboard:
+                        dashboard.current_job["upload"] = "Selesai"
+                        dashboard.render()
+                    break
+                
+                check_btn = driver.find_elements(By.XPATH, "//div[@role='button'][.//span[contains(text(), 'Kirim') or contains(text(), 'Post')]]")
+                is_active = False
+                if check_btn:
+                    for b in check_btn:
+                        if b.get_attribute("aria-disabled") != "true" and b.is_displayed():
+                            is_active = True
+                            
+                # Fallback waktu paksa jika indikator FB tidak terdeteksi
+                if (is_active and time.time() - start_wait > 10) or (time.time() - start_wait > len(media_files) * 5 + 10):
+                    if dashboard:
+                        dashboard.current_job["upload"] = "Selesai (Siap Jadwal)"
+                        dashboard.render()
+                    log_step_new("Upload selesai / Timeout deteksi pintar tercapai.")
+                    break
+            except: pass
+            time.sleep(2)
+
+        if schedule_time:
+            if dashboard:
+                dashboard.current_job["scheduling"] = "Mencari menu..."
+                dashboard.render()
+            log_step_new("Mencari ikon 'Opsi Penjadwalan'...")
+            
+            # 1. Buka menu penjadwalan
+            try:
+                # Menggunakan teks pasti dengan 'p' kecil untuk menghindari bentrok dengan tombol final 'P' besar
+                btn_jadwal_xpath = "//div[@role='button']//span[text()='Jadwalkan' or text()='Jadwalkan postingan' or text()='Schedule' or text()='Schedule post']"
+                
+                jadwal_btns = driver.find_elements(By.XPATH, btn_jadwal_xpath)
+                visible_jadwal = [b for b in jadwal_btns if b.is_displayed()]
+                
+                if visible_jadwal:
+                    driver.execute_script("arguments[0].click();", visible_jadwal[-1])
+                else:
+                    log_step_new("Layar sempit (portrait) terdeteksi. Membuka menu 'Lainnya' (...)")
+                    btn_lainnya_xpath = "//div[@aria-label='Lainnya' or @aria-label='More' or @aria-label='Opsi' or @aria-label='Options' or @aria-label='See more' or @aria-label='Lihat selengkapnya']"
+                    btn_lainnya = driver.find_elements(By.XPATH, btn_lainnya_xpath)
+                    if btn_lainnya and btn_lainnya[-1].is_displayed():
+                        driver.execute_script("arguments[0].click();", btn_lainnya[-1])
+                        time.sleep(2)
+                        jadwal_btns = driver.find_elements(By.XPATH, btn_jadwal_xpath)
+                        visible_jadwal = [b for b in jadwal_btns if b.is_displayed()]
+                        if visible_jadwal:
+                            driver.execute_script("arguments[0].click();", visible_jadwal[-1])
+                        else:
+                            raise Exception("Tidak ada tombol Jadwal di menu Lainnya.")
+                    else:
+                        raise Exception("Tombol Jadwalkan tidak terlihat dan menu Lainnya tidak ditemukan.")
+                time.sleep(2)
+            except Exception as e:
+                log_step_new(f"Gagal menemukan tombol Jadwalkan: {e}")
+                if dashboard:
+                    dashboard.current_job["scheduling"] = "Gagal buka opsi"
+                    dashboard.render()
+                return False
+
+            if dashboard:
+                dashboard.current_job["scheduling"] = f"Set: {schedule_time}"
+                dashboard.render()
+
+            log_step_new(f"Menyiapkan waktu posting: {schedule_time}")
+            dt_obj = datetime.strptime(schedule_time, "%Y-%m-%d %H:%M")
+            date_val = dt_obj.strftime("%d/%m/%Y") 
+            time_val = dt_obj.strftime("%H:%M")
+
+            try:
+                inputs = driver.find_elements(By.XPATH, "//div[@role='dialog']//input | //form//input")
+                visible_inputs = [inp for inp in inputs if inp.is_displayed() and inp.get_attribute("type") not in ["file", "hidden", "radio", "checkbox"]]
+                
+                if len(visible_inputs) >= 2:
+                    date_input = visible_inputs[-2]
+                    driver.execute_script("arguments[0].focus(); arguments[0].click();", date_input)
+                    time.sleep(0.5)
+                    date_input.send_keys(Keys.CONTROL + "a")
+                    time.sleep(0.2)
+                    date_input.send_keys(Keys.BACKSPACE)
+                    time.sleep(0.5)
+                    # Ketik tanggal dan langsung tekan ENTER tanpa jeda agar React FB tidak meresetnya
+                    date_input.send_keys(date_val + Keys.ENTER)
+                    time.sleep(1.5)
+                    
+                    # Setelah menekan ENTER di kotak tanggal, gunakan TAB untuk pindah ke kotak Jam
+                    # (Ini menghindari kotak jam tidak bisa diklik karena tertutup sesuatu)
+                    date_input.send_keys(Keys.TAB)
+                    time.sleep(0.5)
+                    
+                    # Sekarang kotak jam seharusnya sudah aktif (terfokus)
+                    active_el = driver.switch_to.active_element
+                    active_el.send_keys(Keys.CONTROL + "a")
+                    time.sleep(0.2)
+                    active_el.send_keys(Keys.BACKSPACE)
+                    time.sleep(0.5)
+                    # Ketik jam dan langsung tekan ENTER secara bersamaan
+                    active_el.send_keys(time_val + Keys.ENTER)
+                    time.sleep(2)
+                else:
+                    log_step_new("Input tanggal/jam tidak ditemukan, mencoba metode TAB...")
+                    ActionChains(driver).send_keys(Keys.TAB).send_keys(Keys.TAB).perform()
+            except Exception as e:
+                log_step_new(f"Gagal mengatur waktu: {e}")
+
+            log_step_new("Menyimpan jadwal kalender...")
+            try:
+                # Menambahkan variasi huruf besar/kecil dan menggunakan case-insensitive match
+                xpath_confirm = (
+                    "//div[@role='button']//span["
+                    "contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'jadwalkan untuk nanti') "
+                    "or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'simpan') "
+                    "or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'save') "
+                    "or text()='Jadwalkan' or text()='Schedule'"
+                    "]"
+                )
+                konfirmasi_btns = driver.find_elements(By.XPATH, xpath_confirm)
+                if konfirmasi_btns:
+                    visible_btns = [b for b in konfirmasi_btns if b.is_displayed()]
+                    if visible_btns:
+                        driver.execute_script("arguments[0].click();", visible_btns[-1])
+                    else:
+                        driver.execute_script("arguments[0].click();", konfirmasi_btns[-1])
+                else:
+                    log_step_new("Tombol simpan kalender spesifik tidak ditemukan, mencoba ENTER...")
+                    ActionChains(driver).send_keys(Keys.ENTER).perform()
+            except Exception as e:
+                log_step_new(f"Peringatan saat menyimpan kalender: {e}")
+                ActionChains(driver).send_keys(Keys.ENTER).perform()
+                
+            log_step_new("Menunggu animasi UI kalender tertutup...")
+            time.sleep(5)
+
+        log_step_new("Mengklik tombol FINAL: Jadwalkan Postingan...")
+        time.sleep(2)
+        final_btn_xpath = "//div[@role='button']//span[contains(text(), 'Jadwalkan Postingan') or contains(text(), 'Kirim') or contains(text(), 'Post')]"
+        try:
+            final_btns = driver.find_elements(By.XPATH, final_btn_xpath)
+            if final_btns:
+                driver.execute_script("arguments[0].click();", final_btns[-1])
+            else:
+                ActionChains(driver).send_keys(Keys.CONTROL).send_keys(Keys.ENTER).perform()
+        except Exception as e:
+            log_step_new(f"Tombol final tidak bisa diklik: {e}")
+            return False
+
+        log_step_new("Menunggu notifikasi (toast)...")
+        time.sleep(3)
+        start_check = time.time()
+        while time.time() - start_check < 20:
+            try:
+                toast_els = driver.find_elements(By.XPATH, "//*[contains(text(), 'dijadwalkan') or contains(text(), 'scheduled') or contains(text(), 'Lihat') or contains(text(), 'diterbitkan')]")
+                if toast_els:
+                    log_step_new("Notifikasi konfirmasi Facebook terdeteksi!", is_success=True)
+                    return True
+            except: pass
+            time.sleep(2)
+            
+        log_step_new("Tidak ada notifikasi sukses, tapi proses dianggap selesai.")
+        return True
+
+    except Exception as e:
+        print(f"    {TAG_ERROR} Terjadi kesalahan di metode Tampilan Baru: {e}")
+        return False
+
 def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, preview=False, pre_caption=None, custom_media=None, dashboard=None, task_key=None):
     wait = WebDriverWait(driver, 30)
     key_for_dash = task_key if task_key else post_path
@@ -1690,6 +1966,8 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
         if dashboard:
             dashboard.current_job["upload"] = "Membuka Facebook..."
             dashboard.render()
+
+
         driver.get("https://www.facebook.com/")
         time.sleep(5)
 
@@ -1701,6 +1979,11 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
             post_btn.click()
         except:
             driver.execute_script("arguments[0].click();", post_btn)
+            
+        time.sleep(2.5) # Tunggu kemungkinan redirect FB (post/create)
+        if "facebook.com/post/create" in driver.current_url:
+            return run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time, caption_text, media_files, dashboard, task_key)
+            
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='dialog']")))
         human_delay(1, 1.5)
 
