@@ -98,6 +98,36 @@ def cleanup_profile(profile_path):
             except Exception:
                 pass
 
+def kill_profile_lock_and_processes(profile_path):
+    """Membunuh proses Chrome/Chromedriver yang masih mengunci profil ini dan membersihkan SingletonLock."""
+    profile_path = os.path.abspath(profile_path)
+    
+    # 1. Hentikan proses Chrome yang masih memakai profile_path ini jika di Termux/Linux
+    if IS_TERMUX:
+        try:
+            res = subprocess.run(["pgrep", "-f", profile_path], stdout=subprocess.PIPE, text=True)
+            if res.stdout.strip():
+                pids = res.stdout.strip().split()
+                current_pid = str(os.getpid())
+                for pid in pids:
+                    if pid != current_pid:
+                        try:
+                            os.kill(int(pid), 9)
+                        except Exception:
+                            pass
+                time.sleep(0.5)
+        except Exception:
+            pass
+            
+    # 2. Hapus file lock Singleton jika masih tersisa
+    for lock_name in ["SingletonLock", "SingletonSocket", "SingletonCookie"]:
+        lock_file = os.path.join(profile_path, lock_name)
+        if os.path.exists(lock_file) or os.path.islink(lock_file):
+            try:
+                os.remove(lock_file)
+            except Exception:
+                pass
+
 def setup_driver(profile_path, headless=False):
     """Konfigurasi Selenium Driver yang dioptimalkan."""
     # Pastikan VNC nyala jika tidak headless di Termux
@@ -105,6 +135,8 @@ def setup_driver(profile_path, headless=False):
         ensure_vnc_running()
         
     profile_path = os.path.abspath(profile_path)
+    kill_profile_lock_and_processes(profile_path)
+    
     chrome_options = Options()
     if CHROME_PATH:
         chrome_options.binary_location = CHROME_PATH
@@ -142,11 +174,26 @@ def setup_driver(profile_path, headless=False):
     
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
 
-    if IS_TERMUX and CHROMEDRIVER_PATH:
-        service = Service(CHROMEDRIVER_PATH)
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-    else:
-        driver = webdriver.Chrome(options=chrome_options)
+    try:
+        if IS_TERMUX and CHROMEDRIVER_PATH:
+            service = Service(CHROMEDRIVER_PATH)
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+        else:
+            driver = webdriver.Chrome(options=chrome_options)
+    except Exception as e:
+        print(f"[!] Gagal memulai Chrome ({e}), mencoba membersihkan proses zombie dan mengulang...")
+        if IS_TERMUX:
+            try:
+                subprocess.run(["pkill", "-9", "-f", "chromium|chrome"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(1)
+            except Exception:
+                pass
+        kill_profile_lock_and_processes(profile_path)
+        if IS_TERMUX and CHROMEDRIVER_PATH:
+            service = Service(CHROMEDRIVER_PATH)
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+        else:
+            driver = webdriver.Chrome(options=chrome_options)
     
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     

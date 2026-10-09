@@ -1364,6 +1364,8 @@ def run_album_post_mode(args=None):
             else:
                 if input(f"\n{TAG_INPUT} Lanjut? (y/n, default y): ").lower() == 'n': break
         
+        dashboard.current_idx = len(pending_items)
+        dashboard.render()
         print_progress_bar(len(pending_items), len(pending_items))
         reset_scroll_region()
         print(f"\n{TAG_SUCCESS} {CLR_BOLD}{CLR_GREEN}SEMUA POSTINGAN BERHASIL DIPROSES.{CLR_RESET}")
@@ -1455,6 +1457,8 @@ def run_pending_parts_mode():
         if run_fb_scheduled_task(driver, profile, item_path, sched_str, pre_caption=caption_text, custom_media=media_files, dashboard=dashboard, task_key=sel_key):
             del pending[sel_key]
             save_pending_parts(pending)
+            dashboard.current_idx = 1
+            dashboard.render()
             print(f"\n{TAG_SUCCESS} {CLR_BOLD}{CLR_GREEN}Part Sisa berhasil diproses.{CLR_RESET}")
     finally: driver.quit()
 
@@ -1692,48 +1696,81 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
         log_step_new("Mendeteksi progress upload media...")
         last_percent = -1
         start_wait = time.time()
-        while time.time() - start_wait < 600:
+        max_upload_wait = max(120, len(media_files) * 60)
+        
+        while True:
+            elapsed = time.time() - start_wait
+            if elapsed >= max_upload_wait:
+                log_step_new("Batas waktu deteksi upload tercapai, melanjutkan langkah berikutnya...")
+                break
+                
+            found_percent = False
+            current_percent = -1
+            
+            # 1. Cek indikator % progress
             try:
                 els = driver.find_elements(By.XPATH, "//*[contains(text(), '%') or contains(@aria-label, '%')]")
-                found_percent = False
                 for el in els:
-                    txt = el.text or el.get_attribute("aria-label") or ""
-                    match = re.search(r'(\d+)%', txt)
-                    if match:
-                        percent = int(match.group(1))
-                        found_percent = True
-                        if percent != last_percent:
-                            if dashboard:
-                                dashboard.current_job["upload"] = f"Mengunggah: {percent}%"
-                                dashboard.current_job["activity"] = f"Uploading media: {percent}%"
-                                dashboard.render()
-                            else:
-                                print(f"\r    {TAG_SUCCESS} Uploading: {CLR_GREEN}{percent}%{CLR_RESET}", end="")
-                            last_percent = percent
-                        break
-                if not found_percent and last_percent >= 0:
-                    if not dashboard: print(f"\n    {TAG_SUCCESS} Indikator progress hilang, upload selesai.")
-                    if dashboard:
-                        dashboard.current_job["upload"] = "Selesai"
-                        dashboard.render()
-                    break
+                    try:
+                        txt = el.text or el.get_attribute("aria-label") or ""
+                        match = re.search(r'(\d+)%', txt)
+                        if match:
+                            current_percent = int(match.group(1))
+                            found_percent = True
+                            break
+                    except Exception:
+                        continue
+            except Exception:
+                pass
                 
-                check_btn = driver.find_elements(By.XPATH, "//div[@role='button'][.//span[contains(text(), 'Kirim') or contains(text(), 'Post')]]")
-                is_active = False
-                if check_btn:
-                    for b in check_btn:
-                        if b.get_attribute("aria-disabled") != "true" and b.is_displayed():
-                            is_active = True
-                            
-                # Fallback waktu paksa jika indikator FB tidak terdeteksi
-                if (is_active and time.time() - start_wait > 10) or (time.time() - start_wait > len(media_files) * 5 + 10):
+            if found_percent and current_percent >= 0:
+                if current_percent != last_percent:
+                    last_percent = current_percent
                     if dashboard:
-                        dashboard.current_job["upload"] = "Selesai (Siap Jadwal)"
+                        dashboard.current_job["upload"] = f"Mengunggah: {current_percent}%"
+                        dashboard.current_job["activity"] = f"Uploading media: {current_percent}%"
                         dashboard.render()
-                    log_step_new("Upload selesai / Timeout deteksi pintar tercapai.")
-                    break
-            except: pass
+                    else:
+                        print(f"\r    {TAG_SUCCESS} Uploading: {CLR_GREEN}{current_percent}%{CLR_RESET}", end="")
+            
+            # Jika sebelumnya ada % dan sekarang sudah selesai / indikator hilang
+            if (last_percent >= 100) or (last_percent >= 0 and not found_percent):
+                log_step_new("Indikator progress upload media selesai.")
+                break
+                
+            # 2. Cek apakah tombol navigasi / posting sudah aktif (tidak disabled)
+            is_button_ready = False
+            try:
+                btn_selectors = (
+                    "//div[@role='button'][not(@aria-disabled='true')][.//span[contains(text(), 'Berikutnya') or contains(text(), 'Next') or contains(text(), 'Jadwalkan') or contains(text(), 'Schedule') or contains(text(), 'Posting') or contains(text(), 'Post') or contains(text(), 'Kirim')]]"
+                    "| //div[@role='button'][not(@aria-disabled='true')][@aria-label='Berikutnya' or @aria-label='Next' or @aria-label='Jadwalkan' or @aria-label='Schedule' or @aria-label='Posting' or @aria-label='Post' or @aria-label='Kirim']"
+                )
+                ready_btns = driver.find_elements(By.XPATH, btn_selectors)
+                for b in ready_btns:
+                    try:
+                        if b.is_displayed():
+                            is_button_ready = True
+                            break
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+                
+            # Jika tombol aktif sudah muncul setelah minimal 5 detik upload
+            if is_button_ready and elapsed > 5:
+                log_step_new("Media siap diproses (tombol navigasi/posting aktif terdeteksi).")
+                break
+                
+            # Fallback timeout cerdas jika tombol atau indikator % tidak terdeteksi
+            if elapsed > max(15, len(media_files) * 10):
+                log_step_new("Timeout cerdas tercapai, media dianggap telah diunggah.")
+                break
+                
             time.sleep(2)
+
+        if dashboard:
+            dashboard.current_job["upload"] = "Completed"
+            dashboard.render()
 
         if schedule_time:
             if dashboard:
@@ -1743,8 +1780,10 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
             
             # 1. Buka menu penjadwalan
             try:
-                # Menggunakan teks pasti dengan 'p' kecil untuk menghindari bentrok dengan tombol final 'P' besar
-                btn_jadwal_xpath = "//div[@role='button']//span[text()='Jadwalkan' or text()='Jadwalkan postingan' or text()='Schedule' or text()='Schedule post']"
+                btn_jadwal_xpath = (
+                    "//div[@role='button']//span[text()='Jadwalkan' or text()='Jadwalkan postingan' or text()='Schedule' or text()='Schedule post' or contains(text(), 'Opsi penjadwalan') or contains(text(), 'Scheduling options')]"
+                    "| //div[@role='button'][@aria-label='Jadwalkan' or @aria-label='Jadwalkan postingan' or @aria-label='Schedule' or @aria-label='Schedule post' or @aria-label='Opsi penjadwalan']"
+                )
                 
                 jadwal_btns = driver.find_elements(By.XPATH, btn_jadwal_xpath)
                 visible_jadwal = [b for b in jadwal_btns if b.is_displayed()]
@@ -1752,6 +1791,20 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
                 if visible_jadwal:
                     driver.execute_script("arguments[0].click();", visible_jadwal[-1])
                 else:
+                    # Cek tombol 'Berikutnya' / 'Next' terlebih dahulu jika belum terbuka
+                    btn_next_xpath = "//div[@role='button'][.//span[text()='Berikutnya' or text()='Next']] | //div[@aria-label='Berikutnya' or @aria-label='Next']"
+                    next_btns = driver.find_elements(By.XPATH, btn_next_xpath)
+                    visible_next = [b for b in next_btns if b.is_displayed() and b.get_attribute("aria-disabled") != "true"]
+                    if visible_next:
+                        log_step_new("Mengklik 'Berikutnya' untuk menampilkan opsi jadwal...")
+                        driver.execute_script("arguments[0].click();", visible_next[-1])
+                        time.sleep(2)
+                        jadwal_btns = driver.find_elements(By.XPATH, btn_jadwal_xpath)
+                        visible_jadwal = [b for b in jadwal_btns if b.is_displayed()]
+                        if visible_jadwal:
+                            driver.execute_script("arguments[0].click();", visible_jadwal[-1])
+
+                if not visible_jadwal:
                     log_step_new("Layar sempit (portrait) terdeteksi. Membuka menu 'Lainnya' (...)")
                     btn_lainnya_xpath = "//div[@aria-label='Lainnya' or @aria-label='More' or @aria-label='Opsi' or @aria-label='Options' or @aria-label='See more' or @aria-label='Lihat selengkapnya']"
                     btn_lainnya = driver.find_elements(By.XPATH, btn_lainnya_xpath)
@@ -1771,7 +1824,11 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
                 log_step_new(f"Gagal menemukan tombol Jadwalkan: {e}")
                 if dashboard:
                     dashboard.current_job["scheduling"] = "Gagal buka opsi"
+                    if dashboard.statuses.get(task_key or post_path) != "success":
+                        dashboard.statuses[task_key or post_path] = "failed"
+                        dashboard.failed_count += 1
                     dashboard.render()
+                update_post_status(post_path, f"Gagal buka opsi: {e}", 0)
                 return False
 
             if dashboard:
@@ -1849,34 +1906,135 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
 
         log_step_new("Mengklik tombol FINAL: Jadwalkan Postingan...")
         time.sleep(2)
-        final_btn_xpath = "//div[@role='button']//span[contains(text(), 'Jadwalkan Postingan') or contains(text(), 'Kirim') or contains(text(), 'Post')]"
+        final_btn_xpath = (
+            "//div[@role='button']//span[contains(text(), 'Jadwalkan Postingan') or contains(text(), 'Jadwalkan') or contains(text(), 'Schedule') or contains(text(), 'Posting') or contains(text(), 'Post') or contains(text(), 'Kirim')]"
+            "| //div[@role='button'][@aria-label='Jadwalkan Postingan' or @aria-label='Jadwalkan' or @aria-label='Schedule' or @aria-label='Posting' or @aria-label='Post' or @aria-label='Kirim']"
+        )
         try:
             final_btns = driver.find_elements(By.XPATH, final_btn_xpath)
-            if final_btns:
+            visible_final = [b for b in final_btns if b.is_displayed()]
+            if visible_final:
+                driver.execute_script("arguments[0].click();", visible_final[-1])
+            elif final_btns:
                 driver.execute_script("arguments[0].click();", final_btns[-1])
             else:
                 ActionChains(driver).send_keys(Keys.CONTROL).send_keys(Keys.ENTER).perform()
         except Exception as e:
             log_step_new(f"Tombol final tidak bisa diklik: {e}")
+            if dashboard:
+                dashboard.current_job["scheduling"] = "Failed"
+                if dashboard.statuses.get(task_key or post_path) != "success":
+                    dashboard.statuses[task_key or post_path] = "failed"
+                    dashboard.failed_count += 1
+                dashboard.render()
+            update_post_status(post_path, f"Tombol final gagal: {e}", 0)
             return False
 
-        log_step_new("Menunggu notifikasi (toast)...")
-        time.sleep(3)
+        log_step_new("Menunggu notifikasi konfirmasi Facebook (maks 1 menit)...")
+        time.sleep(2)
         start_check = time.time()
-        while time.time() - start_check < 20:
+        toast_xpath = (
+            "//*[contains(text(), 'dijadwalkan') or contains(text(), 'scheduled') "
+            "or contains(text(), 'Lihat') or contains(text(), 'View') "
+            "or contains(text(), 'diterbitkan') or contains(text(), 'published') "
+            "or contains(text(), 'dibagikan') or contains(text(), 'shared')] "
+            "| //div[@role='alert']"
+        )
+        success_detected = False
+        while time.time() - start_check < 60:
             try:
-                toast_els = driver.find_elements(By.XPATH, "//*[contains(text(), 'dijadwalkan') or contains(text(), 'scheduled') or contains(text(), 'Lihat') or contains(text(), 'diterbitkan')]")
-                if toast_els:
+                toast_els = driver.find_elements(By.XPATH, toast_xpath)
+                visible_toasts = [el for el in toast_els if el.is_displayed()]
+                if visible_toasts:
                     log_step_new("Notifikasi konfirmasi Facebook terdeteksi!", is_success=True)
-                    return True
-            except: pass
-            time.sleep(2)
+                    success_detected = True
+                    break
+            except Exception:
+                pass
+                
+            try:
+                if "facebook.com/post/create" not in driver.current_url:
+                    log_step_new("Halaman posting telah tertutup (sukses).", is_success=True)
+                    success_detected = True
+                    break
+            except Exception:
+                pass
+                
+            time.sleep(1)
             
-        log_step_new("Tidak ada notifikasi sukses, tapi proses dianggap selesai.")
+        if not success_detected:
+            log_step_new("Waktu tunggu 1 menit habis tanpa notifikasi toast, proses dianggap selesai.")
+            success_detected = True
+
+        # TANDAI FILE / FOLDER SEBAGAI SUKSES
+        key_for_dash = task_key if task_key else post_path
+        is_file = os.path.isfile(post_path)
+        if is_file:
+            marker_file = post_path + ".uploadedfb"
+        else:
+            if "__part_" in post_path:
+                actual_path = post_path.split("__part_")[0]
+                if os.path.isdir(actual_path):
+                    part_suffix = post_path.split("__part_")[1]
+                    marker_file = os.path.join(actual_path, f"uploadedfb_part_{part_suffix}.txt")
+                else:
+                    marker_file = post_path + ".uploadedfb"
+            else:
+                marker_file = os.path.join(post_path, "uploadedfb.txt")
+                
+        try:
+            with open(marker_file, "w", encoding="utf-8") as f:
+                if schedule_time:
+                    f.write(f"Dijadwalkan: {schedule_time}\n")
+                else:
+                    f.write(f"Diposting: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
+        except Exception as e_mark:
+            log_step_new(f"Peringatan membuat marker: {e_mark}")
+
+        log_step_new(f"Postingan BERHASIL {'dijadwalkan' if schedule_time else 'diposting'}.", is_success=True)
+        update_post_status(post_path, "SELESAI!", 100)
+
+        # UPDATE DASHBOARD AGAR MENANDAI SELESAI SUKSES
+        if dashboard:
+            dashboard.current_job["upload"] = "Completed"
+            dashboard.current_job["caption"] = "Injected"
+            dashboard.current_job["scheduling"] = "Completed"
+            dashboard.current_job["activity"] = f"✓ Postingan BERHASIL {'dijadwalkan' if schedule_time else 'diposting'}."
+            if dashboard.statuses.get(key_for_dash) != "success":
+                dashboard.statuses[key_for_dash] = "success"
+                dashboard.success_count += 1
+            dashboard.render()
+
+        # HAPUS FILE STATUS SEMENTARA
+        status_file = (post_path + ".status") if is_file else os.path.join(post_path, "upload_status.json")
+        if os.path.exists(status_file):
+            try: os.remove(status_file)
+            except: pass
+
+        try:
+            log_step_new("Menunggu 5 detik sebelum merefresh...")
+            time.sleep(5)
+            log_step_new("Merefresh halaman Facebook...")
+            driver.refresh()
+            time.sleep(5)
+        except Exception:
+            pass
+
         return True
 
     except Exception as e:
-        print(f"    {TAG_ERROR} Terjadi kesalahan di metode Tampilan Baru: {e}")
+        err_msg = str(e)
+        key_for_dash = task_key if task_key else post_path
+        print(f"    {TAG_ERROR} Terjadi kesalahan di metode Tampilan Baru: {err_msg}")
+        update_post_status(post_path, f"Gagal: {err_msg[:40]}", 0)
+        if dashboard:
+            dashboard.current_job["upload"] = "Failed" if dashboard.current_job.get("upload") != "Completed" else "Completed"
+            dashboard.current_job["caption"] = "Failed" if dashboard.current_job.get("caption") != "Injected" else "Injected"
+            dashboard.current_job["scheduling"] = "Failed"
+            dashboard.current_job["activity"] = f"Error: {err_msg[:35]}"
+            dashboard.statuses[key_for_dash] = "failed"
+            dashboard.failed_count += 1
+            dashboard.render()
         return False
 
 def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, preview=False, pre_caption=None, custom_media=None, dashboard=None, task_key=None):
@@ -2197,29 +2355,43 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                 except Exception as e:
                     log_step(f"Proses klik jadwal selesai/dilewati...", dashboard)
 
-            log_step("Menunggu Facebook memproses & mengeluarkan notifikasi (1-5 detik)...", dashboard)
-            time.sleep(3) # Beri jeda 3 detik agar Facebook sempat memunculkan popup
+            log_step("Menunggu konfirmasi notifikasi Facebook (maks 1 menit)...", dashboard)
+            time.sleep(2)
             
             # Deteksi Toast / Popup / Notifikasi "Postingan Anda dijadwalkan" / "Lihat"
             success_detected = False
             start_check = time.time()
-            while time.time() - start_check < 20:
+            toast_xpath = (
+                "//*[contains(text(), 'dijadwalkan') or contains(text(), 'scheduled') "
+                "or contains(text(), 'Lihat') or contains(text(), 'View') "
+                "or contains(text(), 'diterbitkan') or contains(text(), 'published') "
+                "or contains(text(), 'dibagikan') or contains(text(), 'shared')] "
+                "| //div[@role='alert']"
+            )
+            while time.time() - start_check < 60:
                 try:
-                    # 1. Cari elemen teks toast Facebook "dijadwalkan", "scheduled", "Lihat", "View"
-                    toast_els = driver.find_elements(By.XPATH, "//*[contains(text(), 'dijadwalkan') or contains(text(), 'scheduled') or contains(text(), 'Lihat') or contains(text(), 'View') or contains(text(), 'diterbitkan') or contains(text(), 'published')]")
-                    if toast_els:
-                        log_step("Notifikasi konfirmasi Facebook terdeteksi!", dashboard)
-                        success_detected = True
-                        break
-                    
-                    # 2. Cek apakah dialog postingan sudah tertutup (tanda sukses)
-                    dialogs = driver.find_elements(By.XPATH, "//div[@role='dialog']")
-                    if not dialogs:
+                    # 1. Cari elemen teks toast Facebook atau alert
+                    toast_els = driver.find_elements(By.XPATH, toast_xpath)
+                    visible_toasts = [el for el in toast_els if el.is_displayed()]
+                    if visible_toasts:
+                        log_step("Notifikasi konfirmasi Facebook terdeteksi!", dashboard, is_success=True)
                         success_detected = True
                         break
                 except:
                     pass
                 time.sleep(1)
+
+            # Jika waktu 1 menit habis tanpa toast, cek apakah dialog sudah tertutup sebagai fallback
+            if not success_detected:
+                try:
+                    dialogs = driver.find_elements(By.XPATH, "//div[@role='dialog']")
+                    if not dialogs:
+                        log_step("Waktu tunggu 1 menit selesai, dialog postingan telah tertutup.", dashboard)
+                        success_detected = True
+                    else:
+                        log_step("Waktu tunggu 1 menit habis tanpa notifikasi konfirmasi.", dashboard)
+                except:
+                    pass
 
             if success_detected:
                 marker_file = post_path + ".uploadedfb" if is_file else os.path.join(post_path, "uploadedfb.txt")
@@ -2244,6 +2416,8 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                 if os.path.exists(status_file): os.remove(status_file)
                 
                 try:
+                    log_step("Menunggu 5 detik sebelum merefresh...", dashboard)
+                    time.sleep(5)
                     log_step("Merefresh halaman Facebook...", dashboard)
                     driver.refresh()
                     time.sleep(5)
@@ -2256,6 +2430,8 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
             
             # Refresh halaman sebelum posting selanjutnya
             try:
+                log_step("Menunggu 5 detik sebelum merefresh...", dashboard)
+                time.sleep(5)
                 log_step("Merefresh halaman Facebook...", dashboard)
                 driver.refresh()
                 time.sleep(5)
@@ -2280,6 +2456,9 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                 with open(marker_file, "w") as f:
                     f.write(f"Dijadwalkan: {schedule_time}")
                 try:
+                    log_step("Menunggu 5 detik sebelum merefresh...", dashboard)
+                    time.sleep(5)
+                    log_step("Merefresh halaman Facebook...", dashboard)
                     driver.refresh()
                     time.sleep(5)
                 except: pass
@@ -2353,6 +2532,8 @@ def run_draft_mode():
             if run_fb_scheduled_task(driver, profile, sel_path, sched_str, pre_caption=sel_data.get('caption'), custom_media=media_files, dashboard=dashboard):
                 del drafts[sel_path]
                 save_drafts(drafts)
+                dashboard.current_idx = 1
+                dashboard.render()
                 print_progress_bar(1, 1)
                 reset_scroll_region()
                 print(f"\n{TAG_SUCCESS} {CLR_BOLD}{CLR_GREEN}DRAF BERHASIL DIPOSTING.{CLR_RESET}")
@@ -2755,6 +2936,8 @@ if __name__ == "__main__":
             else:
                 if input(f"\n{TAG_INPUT} Lanjut? (y/n, default y): ").lower() == 'n': break
         
+        dashboard.current_idx = len(pending_items)
+        dashboard.render()
         print_progress_bar(len(pending_items), len(pending_items))
         reset_scroll_region()
         print(f"\n{TAG_SUCCESS} {CLR_BOLD}{CLR_GREEN}PROSES CLI SELESAI.{CLR_RESET}")
