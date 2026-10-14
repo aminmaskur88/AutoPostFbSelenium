@@ -221,6 +221,50 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.state.item_data_map[item_path]['caption'] = data['caption']
             self.send_response(200)
             self.end_headers()
+        elif self.path == '/toggle_ai':
+            with self.state.lock:
+                idx = data['index']
+                item_path = self.state.pending_items[idx]
+                is_ai = bool(data.get('ai_content', False))
+                self.state.item_data_map[item_path]['ai_content'] = is_ai
+                
+                # Update ke post_meta.json jika foldernya ada
+                target_dir = item_path if os.path.isdir(item_path) else os.path.dirname(item_path)
+                meta_file = os.path.join(target_dir, "post_meta.json")
+                if os.path.exists(meta_file):
+                    try:
+                        with open(meta_file, 'r', encoding='utf-8') as mf:
+                            m_data = json.load(mf)
+                        m_data['ai_content'] = is_ai
+                        with open(meta_file, 'w', encoding='utf-8') as mf:
+                            json.dump(m_data, mf, indent=4)
+                    except: pass
+            self.send_response(200)
+            self.end_headers()
+        elif self.path == '/edit_affiliate':
+            with self.state.lock:
+                idx = data['index']
+                item_path = self.state.pending_items[idx]
+                aff_url = (data.get('affiliate_link') or '').strip()
+                self.state.item_data_map[item_path]['affiliate_link'] = aff_url if aff_url else None
+                
+                # Update ke post_meta.json
+                target_dir = item_path if os.path.isdir(item_path) else os.path.dirname(item_path)
+                meta_file = os.path.join(target_dir, "post_meta.json")
+                meta = {}
+                if os.path.exists(meta_file):
+                    try:
+                        with open(meta_file, 'r', encoding='utf-8') as mf:
+                            meta = json.load(mf)
+                    except: pass
+                meta['affiliate_link'] = aff_url
+                try:
+                    with open(meta_file, 'w', encoding='utf-8') as mf:
+                        json.dump(meta, mf, indent=4)
+                except Exception as e:
+                    print(f"[!] Gagal menyimpan affiliate_link ke post_meta.json: {e}")
+            self.send_response(200)
+            self.end_headers()
         elif self.path == '/delete_item':
             with self.state.lock:
                 idx = data['index']
@@ -424,6 +468,52 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                         <div class="template-list">{template_opts}</div>
                     </div>'''
 
+            aff_link = data.get('affiliate_link') or (get_post_metadata(path).get('affiliate_link', '').strip() or "")
+            visit_display = "inline-flex" if aff_link else "none"
+            affiliate_input_html = f'''
+            <div style="background:#fff7ed; border:1px solid #fed7aa; border-radius:6px; padding:8px 12px; margin-bottom:8px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                    <span style="font-size:12px; font-weight:bold; color:#c2410c; display:flex; align-items:center; gap:5px;">
+                        <span style="font-size:14px;">🛍️</span> Link Afiliasi Shopee:
+                    </span>
+                    <a id="aff-visit-{i}" href="{html.escape(aff_link)}" target="_blank" style="font-size:11px; color:#ea580c; text-decoration:underline; font-weight:600; display:{visit_display}; align-items:center; gap:2px;">Kunjungi Link ↗</a>
+                </div>
+                <div style="display:flex; gap:6px;">
+                    <input type="text" 
+                           id="aff-input-{i}" 
+                           value="{html.escape(aff_link)}" 
+                           placeholder="Masukkan link affiliate, cth: https://s.shopee.co.id/..." 
+                           onchange="editAffiliateLink({i}, this.value)"
+                           style="flex:1; border:1px solid #fdba74; border-radius:4px; padding:6px 10px; font-size:12px; background:#fff; outline:none;">
+                    <button type="button" 
+                            id="aff-btn-{i}"
+                            onclick="saveAffiliateLinkBtn({i})" 
+                            style="background:#ea580c; color:#fff; border:none; border-radius:4px; padding:6px 14px; font-size:11px; font-weight:bold; cursor:pointer;">
+                        Simpan
+                    </button>
+                </div>
+            </div>'''
+
+            is_ai_on = data.get('ai_content')
+            if is_ai_on is None:
+                is_ai_on = get_post_metadata(path).get('ai_content', False)
+            ai_checked_str = "checked" if is_ai_on else ""
+
+            ai_toggle_html = f'''
+            <div style="background:#f0f7ff; border:1px solid #bfdbfe; border-radius:6px; padding:8px 12px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="font-size:16px;">🤖</span>
+                    <div>
+                        <strong style="color:#1e40af; font-size:13px;">Konten Dihasilkan AI</strong>
+                        <div style="font-size:11px; color:#3b82f6;">Otomatis aktifkan toggle Label AI di komposer Facebook</div>
+                    </div>
+                </div>
+                <label class="preview-switch" title="Toggle Label AI Facebook">
+                    <input type="checkbox" onchange="toggleAiPreview({i}, this.checked)" {ai_checked_str}>
+                    <span class="preview-slider"></span>
+                </label>
+            </div>'''
+
             items_html += f"""
             <div class="item-card" data-index="{i}">
                 <div class="album-header">
@@ -435,6 +525,8 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                     <button class="btn-delete" onclick="deleteItem({i})">×</button>
                 </div>
                 <div class="caption-container">
+                    {affiliate_input_html}
+                    {ai_toggle_html}
                     <textarea onchange="editCaption({i}, this.value)">{data['caption']}</textarea>
                 </div>
                 <div class="photos-container" id="photos-container-{i}">
@@ -514,6 +606,13 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                 .btn-start:hover {{ background: #36a420; }}
                 
                 .sortable-ghost {{ opacity: 0.4; background: #c8ebfb; }}
+                
+                .preview-switch {{ position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }}
+                .preview-switch input {{ opacity: 0; width: 0; height: 0; }}
+                .preview-slider {{ position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .25s; border-radius: 24px; }}
+                .preview-slider:before {{ position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .25s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }}
+                .preview-switch input:checked + .preview-slider {{ background-color: #2563eb; }}
+                .preview-switch input:checked + .preview-slider:before {{ transform: translateX(20px); }}
             </style>
         </head>
         <body>
@@ -656,6 +755,48 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                         photo_name: photoName,
                         caption: newCaption
                     }});
+                }}
+
+                function toggleAiPreview(index, isChecked) {{
+                    postAction('/toggle_ai', {{
+                        index: index,
+                        ai_content: isChecked
+                    }});
+                }}
+
+                function editAffiliateLink(index, newUrl) {{
+                    const trimmed = (newUrl || '').trim();
+                    postAction('/edit_affiliate', {{
+                        index: index,
+                        affiliate_link: trimmed
+                    }}).then(() => {{
+                        const visitLink = document.getElementById('aff-visit-' + index);
+                        if (visitLink) {{
+                            if (trimmed) {{
+                                visitLink.href = trimmed;
+                                visitLink.style.display = 'inline-flex';
+                            }} else {{
+                                visitLink.style.display = 'none';
+                            }}
+                        }}
+                    }});
+                }}
+
+                function saveAffiliateLinkBtn(index) {{
+                    const input = document.getElementById('aff-input-' + index);
+                    if (input) {{
+                        editAffiliateLink(index, input.value);
+                        const btn = document.getElementById('aff-btn-' + index);
+                        if (btn) {{
+                            const origText = btn.textContent;
+                            btn.textContent = '✓ Tersimpan';
+                            btn.style.background = '#16a34a';
+                            setTimeout(() => {{
+                                btn.textContent = origText;
+                                btn.style.background = '#ea580c';
+                            }}, 1200);
+                        }}
+                    }}
                 }}
 
                 function startUpload() {{
@@ -920,13 +1061,10 @@ def get_next_folder(base_dir):
     pending.sort(key=lambda x: x['ctime']) # FIFO
     return pending[0]['path']
 
-def get_caption_text(post_path):
-    """Membangun caption utama dari post_meta.json (Logic ala reference script)."""
+def get_post_metadata(post_path):
+    """Membaca file post_meta.json atau plan_gemini.json dari folder atau file."""
     post_path_norm = os.path.normpath(post_path)
-    item_name = os.path.basename(post_path_norm)
     is_file = os.path.isfile(post_path_norm)
-    
-    # Metadata Path
     meta = {}
     if not is_file:
         meta_file = os.path.join(post_path, "post_meta.json")
@@ -942,14 +1080,294 @@ def get_caption_text(post_path):
                     meta = json.load(f)
             except: pass
         else:
-            # Cek jika ada file .txt di dalam folder (misal: caption.txt atau deskripsi.txt)
-            txt_files = [f for f in os.listdir(post_path) if f.lower().endswith('.txt') and not f.lower().startswith('uploaded')]
-            if txt_files:
-                txt_path = os.path.join(post_path, txt_files[0])
+            try:
+                for f in os.listdir(post_path):
+                    if f.lower().endswith('.json') and not f.startswith('.'):
+                        with open(os.path.join(post_path, f), 'r', encoding='utf-8') as jf:
+                            d = json.load(jf)
+                            if isinstance(d, dict) and any(k in d for k in ['post_title', 'summary', 'affiliate_link']):
+                                meta = d
+                                break
+            except: pass
+    else:
+        base_no_ext = os.path.splitext(post_path_norm)[0]
+        for candidate in [post_path_norm + ".json", base_no_ext + ".json"]:
+            if os.path.exists(candidate):
                 try:
-                    with open(txt_path, 'r', encoding='utf-8') as f:
-                        return f.read().strip()
+                    with open(candidate, 'r', encoding='utf-8') as f:
+                        d = json.load(f)
+                        if isinstance(d, dict):
+                            meta = d
+                            break
                 except: pass
+    if "ai_content" not in meta:
+        if "is_ai_generated" in meta:
+            meta["ai_content"] = bool(meta["is_ai_generated"])
+        elif "prompt" in meta or "AI" in str(meta.get("post_title", "")).upper():
+            meta["ai_content"] = True
+        else:
+            meta["ai_content"] = False
+    return meta
+
+def inject_affiliate_link(driver, affiliate_url, link_name=None, log_func=None):
+    """
+    Menyuntikkan tautan afiliasi ke form produk Facebook.
+    Mendukung:
+    - Tampilan Baru Fanpage (Menu langsung 'Tambahkan produk')
+    - Tampilan Baru Profil Mode Profesional (Menu 'Monetisasi' -> 'Tambahkan tautan produk')
+    - Tampilan Lama Modal Dialog Facebook ('Tandai Produk' / 'Monetisasi')
+    Jika opsi tidak tersedia pada akun/halaman, otomatis dilewati tanpa error ('jika gakada gak usah').
+    """
+    if not affiliate_url or not str(affiliate_url).strip():
+        return False
+        
+    affiliate_url = str(affiliate_url).strip()
+    
+    def log(msg, is_success=False):
+        if log_func:
+            log_func(msg, is_success=is_success)
+        else:
+            print(f"    {'[✓]' if is_success else '[i]'} {msg}")
+            
+    log("Mengecek menu produk afiliasi / monetisasi di Facebook...")
+    
+    try:
+        opened_form = False
+        
+        # JALUR 1: Menu langsung 'Tambahkan produk' (biasa di Halaman / Fanpage)
+        xpath_direct = (
+            "//div[@role='button'][contains(., 'Tambahkan produk') or .//span[contains(text(), 'Tambahkan produk')]]"
+            "| //div[@role='button'][@aria-label='Tambahkan produk' or @aria-label='Tandai Produk']"
+        )
+        direct_btns = [b for b in driver.find_elements(By.XPATH, xpath_direct) if b.is_displayed()]
+        if direct_btns:
+            log("Membuka menu 'Tambahkan produk'...")
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", direct_btns[0])
+            time.sleep(0.5)
+            driver.execute_script("arguments[0].click();", direct_btns[0])
+            time.sleep(2)
+            opened_form = True
+
+        # JALUR 2: Menu 'Monetisasi' -> 'Tambahkan tautan produk' (biasa di Profil / Mode Profesional)
+        if not opened_form:
+            xpath_monetisasi = (
+                "//div[@role='button'][contains(., 'Monetisasi') or .//span[contains(text(), 'Monetisasi')]]"
+                "| //div[@role='button'][@aria-label='Monetisasi']"
+            )
+            m_btns = [b for b in driver.find_elements(By.XPATH, xpath_monetisasi) if b.is_displayed()]
+            if m_btns:
+                log("Membuka menu 'Monetisasi'...")
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", m_btns[0])
+                time.sleep(0.5)
+                driver.execute_script("arguments[0].click();", m_btns[0])
+                time.sleep(2)
+                
+                # Cari sub-menu 'Tambahkan tautan produk' di modal monetisasi
+                xpath_sub = (
+                    "//div[@role='button'][contains(., 'Tambahkan tautan produk') or .//span[contains(text(), 'Tambahkan tautan produk')]]"
+                    "| //div[@role='button'][contains(., 'konten afiliasi')]"
+                )
+                sub_btns = [b for b in driver.find_elements(By.XPATH, xpath_sub) if b.is_displayed()]
+                if sub_btns:
+                    log("Mengklik opsi 'Tambahkan tautan produk'...")
+                    driver.execute_script("arguments[0].click();", sub_btns[0])
+                    time.sleep(2)
+                    opened_form = True
+
+        # JALUR 3: Tampilan Lama Dialog Modal Facebook (cek tombol 'Lainnya' / '...' jika ada)
+        if not opened_form:
+            xpath_more = "//div[@role='dialog']//div[@role='button'][@aria-label='Lainnya' or @aria-label='More']"
+            more_btns = [b for b in driver.find_elements(By.XPATH, xpath_more) if b.is_displayed()]
+            if more_btns:
+                driver.execute_script("arguments[0].click();", more_btns[0])
+                time.sleep(1.5)
+                tag_product = [b for b in driver.find_elements(By.XPATH, "//div[@role='button'][contains(., 'Tandai Produk') or contains(., 'Tambahkan produk')]") if b.is_displayed()]
+                if tag_product:
+                    driver.execute_script("arguments[0].click();", tag_product[0])
+                    time.sleep(2)
+                    opened_form = True
+
+        # Jika form tidak ditemukan di jalur manapun
+        if not opened_form:
+            xpath_url_check = "//div[.//span[text()='URL']]//input[@type='text'] | //input[@maxlength='2048']"
+            if not any(inp.is_displayed() for inp in driver.find_elements(By.XPATH, xpath_url_check)):
+                log("Opsi produk afiliasi tidak tersedia di akun/tampilan ini, melewati pengisian afiliasi.")
+                return False
+
+        # 2. Cari kotak input URL
+        xpath_url_input = (
+            "//div[.//span[text()='URL']]//input[@type='text'] | //input[@maxlength='2048']"
+        )
+        url_inputs = [inp for inp in driver.find_elements(By.XPATH, xpath_url_input) if inp.is_displayed()]
+        
+        if not url_inputs:
+            log("Input URL afiliasi tidak ditemukan di dalam dialog.")
+            try:
+                close_btn = driver.find_elements(By.XPATH, "//div[@role='button'][@aria-label='Tutup' or @aria-label='Tutup dialog komposer' or @aria-label='Close']")
+                if close_btn: driver.execute_script("arguments[0].click();", close_btn[-1])
+            except: pass
+            return False
+            
+        url_input = url_inputs[0]
+        driver.execute_script("arguments[0].focus(); arguments[0].click();", url_input)
+        time.sleep(0.3)
+        url_input.send_keys(Keys.CONTROL + "a")
+        time.sleep(0.1)
+        url_input.send_keys(Keys.BACKSPACE)
+        time.sleep(0.1)
+        url_input.send_keys(affiliate_url)
+        time.sleep(1.5)
+        
+        # 3. (Opsional) Nama tautan jika ada
+        if link_name:
+            try:
+                name_inputs = [ni for ni in driver.find_elements(By.XPATH, "//div[.//span[contains(text(), 'Nama tautan')]]//input[@type='text'] | //input[@maxlength='96']") if ni.is_displayed()]
+                if name_inputs:
+                    name_inputs[0].send_keys(Keys.CONTROL + "a")
+                    time.sleep(0.1)
+                    name_inputs[0].send_keys(Keys.BACKSPACE)
+                    time.sleep(0.1)
+                    name_inputs[0].send_keys(link_name)
+                    time.sleep(0.5)
+            except Exception: pass
+            
+        # 4. Klik Simpan
+        xpath_simpan = "//div[@role='button'][@aria-label='Simpan' or .//span[text()='Simpan']]"
+        simpan_btns = [b for b in driver.find_elements(By.XPATH, xpath_simpan) if b.is_displayed() and b.get_attribute("aria-disabled") != "true"]
+        if not simpan_btns:
+            time.sleep(1.5)
+            simpan_btns = [b for b in driver.find_elements(By.XPATH, xpath_simpan) if b.is_displayed()]
+            
+        if simpan_btns:
+            driver.execute_script("arguments[0].click();", simpan_btns[-1])
+            time.sleep(2)
+            log("Tautan afiliasi berhasil ditambahkan ke postingan!", is_success=True)
+            return True
+        else:
+            log("Tombol Simpan afiliasi tidak aktif atau tidak ditemukan.")
+            return False
+            
+    except Exception as e:
+        log(f"Peringatan saat menyuntikkan tautan afiliasi: {e}")
+        return False
+
+def toggle_ai_label(driver, enable=True, log_func=None):
+    """
+    Mengaktifkan / menonaktifkan toggle 'Tambahkan Label AI' di Facebook composer.
+    Mendukung Tampilan Baru (/post/create) maupun modal dialog Facebook lainnya.
+    Jika opsi tidak tersedia pada akun/halaman, otomatis dilewati tanpa error ('jika ada aktifkan, jika gakada gak usah').
+    """
+    def log(msg, is_success=False):
+        if log_func:
+            log_func(msg, is_success=is_success)
+        else:
+            print(f"    {'[✓]' if is_success else '[i]'} {msg}")
+
+    if not enable:
+        log("Konten AI: Nonaktif (toggle label AI dilewati).")
+        return False
+
+    log("Mengecek opsi toggle 'Tambahkan Label AI' di Facebook...")
+
+    try:
+        # 1. Cari switch label AI melalui teks atau atribut terkait
+        # Facebook Indonesia: 'Tambahkan Label AI', 'Label AI', 'konten realistis tertentu yang dibuat dengan AI'
+        # Facebook English: 'Add AI info label', 'AI info label', 'AI label'
+        xpath_ai_switches = (
+            "//div[contains(., 'Tambahkan Label AI') or contains(., 'Label AI') or contains(., 'AI label') or contains(., 'dibuat dengan AI')]//input[@role='switch']"
+            "| //div[contains(., 'Tambahkan Label AI') or contains(., 'Label AI') or contains(., 'AI label') or contains(., 'dibuat dengan AI')]//*[@role='switch']"
+            "| //input[@role='switch'][contains(@aria-label, 'Label AI') or contains(@aria-label, 'AI')]"
+            "| //*[@role='switch'][contains(@aria-label, 'Label AI') or contains(@aria-label, 'AI')]"
+        )
+
+        switches = [s for s in driver.find_elements(By.XPATH, xpath_ai_switches) if s.is_displayed()]
+
+        # Fallback: cari baris atau button yang berisi teks 'Tambahkan Label AI'
+        if not switches:
+            row_xpath = (
+                "//div[@role='button'][contains(., 'Tambahkan Label AI') or contains(., 'Label AI')]"
+                "| //div[.//span[text()='Tambahkan Label AI' or contains(text(), 'Label AI')]]"
+            )
+            rows = [r for r in driver.find_elements(By.XPATH, row_xpath) if r.is_displayed()]
+            for r in rows:
+                child_sw = r.find_elements(By.XPATH, ".//input[@role='switch'] | .//*[@role='switch'] | .//input[@type='checkbox']")
+                if child_sw:
+                    switches.extend(child_sw)
+                    break
+                else:
+                    switches.append(r)
+                    break
+
+        if not switches:
+            log("Opsi toggle Label AI tidak ditemukan di halaman ini (dilewati).")
+            return False
+
+        target_switch = switches[0]
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_switch)
+        time.sleep(0.5)
+
+        # Cek status switch saat ini
+        aria_checked = (target_switch.get_attribute("aria-checked") or "").lower()
+        is_checked = (aria_checked == "true") or target_switch.is_selected()
+        aria_label = (target_switch.get_attribute("aria-label") or "").lower()
+        if "aktif" in aria_label and "nonaktif" not in aria_label:
+            is_checked = True
+        elif "nonaktif" in aria_label:
+            is_checked = False
+
+        if enable and not is_checked:
+            log("Mengaktifkan toggle 'Tambahkan Label AI'...")
+            try:
+                target_switch.click()
+            except:
+                driver.execute_script("arguments[0].click();", target_switch)
+            time.sleep(1.5)
+
+            # Cek jika muncul pop-up konfirmasi Facebook (misal: tombol 'Aktifkan' / 'Tambahkan' / 'Turn on')
+            confirm_xpath = (
+                "//div[@role='dialog']//div[@role='button'][.//span[contains(text(), 'Aktifkan') or contains(text(), 'Tambahkan') or contains(text(), 'Simpan') or contains(text(), 'Turn on') or contains(text(), 'Add')]]"
+                "| //div[@role='dialog']//div[@role='button'][@aria-label='Aktifkan' or @aria-label='Tambahkan' or @aria-label='Turn on']"
+            )
+            confirm_btns = [b for b in driver.find_elements(By.XPATH, confirm_xpath) if b.is_displayed()]
+            if confirm_btns:
+                driver.execute_script("arguments[0].click();", confirm_btns[-1])
+                time.sleep(1)
+
+            log("Toggle 'Tambahkan Label AI' Facebook berhasil diaktifkan (ON)!", is_success=True)
+            return True
+        elif enable and is_checked:
+            log("Toggle 'Tambahkan Label AI' Facebook sudah aktif (ON).", is_success=True)
+            return True
+        elif not enable and is_checked:
+            log("Menonaktifkan toggle 'Tambahkan Label AI'...")
+            try:
+                target_switch.click()
+            except:
+                driver.execute_script("arguments[0].click();", target_switch)
+            time.sleep(1)
+            return True
+
+    except Exception as e:
+        log(f"Peringatan saat memproses toggle Label AI: {e}")
+        return False
+
+def get_caption_text(post_path):
+    """Membangun caption utama dari post_meta.json (Logic ala reference script)."""
+    post_path_norm = os.path.normpath(post_path)
+    item_name = os.path.basename(post_path_norm)
+    is_file = os.path.isfile(post_path_norm)
+    
+    # Metadata Path
+    meta = get_post_metadata(post_path)
+    if not meta and not is_file:
+        # Cek jika ada file .txt di dalam folder (misal: caption.txt atau deskripsi.txt)
+        txt_files = [f for f in os.listdir(post_path) if f.lower().endswith('.txt') and not f.lower().startswith('uploaded')]
+        if txt_files:
+            txt_path = os.path.join(post_path, txt_files[0])
+            try:
+                with open(txt_path, 'r', encoding='utf-8') as f:
+                    return f.read().strip()
+            except: pass
     
     # Fallback ke Nama Folder/File jika meta kosong
     clean_name = os.path.splitext(item_name)[0] if is_file else item_name
@@ -1082,6 +1500,11 @@ def split_stories_into_parts(story_items, story_map):
             part_key = f"{paths[0]}__part_{idx}" if len(chunks) > 1 else paths[0]
             
             new_items.append(part_key)
+            aff_link = data.get("affiliate_link") or (get_post_metadata(paths[0]).get("affiliate_link", "").strip() or None)
+            meta_post = get_post_metadata(paths[0])
+            is_ai = data.get("ai_content")
+            if is_ai is None:
+                is_ai = meta_post.get("ai_content", False)
             new_map[part_key] = {
                 "caption": caption_title,
                 "media_files": final_chunk,
@@ -1089,7 +1512,9 @@ def split_stories_into_parts(story_items, story_map):
                 "photo_captions": data.get("photo_captions", {}),
                 "display_name": caption_title,
                 "story_title": title,
-                "original_paths": paths
+                "original_paths": paths,
+                "affiliate_link": aff_link,
+                "ai_content": is_ai
             }
             
     return new_items, new_map
@@ -1357,7 +1782,9 @@ def run_album_post_mode(args=None):
                 res = get_datetime_input(f"Jadwal untuk {data.get('display_name', os.path.basename(item))}")
                 sched_str = None if res == 'now' else res.strftime("%Y-%m-%d %H:%M")
             
-            if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=media_files, dashboard=dashboard):
+            affiliate_link = data.get('affiliate_link')
+            ai_content = data.get('ai_content')
+            if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=media_files, dashboard=dashboard, affiliate_link=affiliate_link, ai_content=ai_content):
                 if not sched_str and interval_mins > 0 and item != pending_items[-1]:
                     print(f"   {TAG_INFO} Menunggu {interval_mins} menit...")
                     time.sleep(interval_mins * 60)
@@ -1614,7 +2041,7 @@ def log_step(message, dashboard=None, is_success=False):
         prefix = "[✓]" if is_success else "[i]"
         print(f"    {prefix} {message}")
 
-def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time, caption_text, media_files, dashboard=None, task_key=None):
+def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time, caption_text, media_files, dashboard=None, task_key=None, affiliate_link=None, ai_content=None):
     wait = WebDriverWait(driver, 30)
     
     try:
@@ -1625,6 +2052,12 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
             else:
                 prefix = TAG_SUCCESS if is_success else TAG_INFO
                 print(f"    {prefix} {msg}")
+            
+        meta = get_post_metadata(post_path)
+        if not affiliate_link:
+            affiliate_link = meta.get("affiliate_link", "").strip() or None
+        if ai_content is None:
+            ai_content = meta.get("ai_content", False)
             
         log_step_new("Beralih ke metode Uploader Tampilan Baru (post/create)...")
         time.sleep(2)
@@ -1771,6 +2204,16 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
         if dashboard:
             dashboard.current_job["upload"] = "Completed"
             dashboard.render()
+
+        # Injeksi Link Produk Afiliasi (jika ada dan form tersedia)
+        if affiliate_link:
+            inject_affiliate_link(driver, affiliate_link, log_func=log_step_new)
+            time.sleep(2)
+
+        # Aktifkan Toggle Konten AI di Facebook jika di-set ON
+        if ai_content:
+            toggle_ai_label(driver, enable=True, log_func=log_step_new)
+            time.sleep(1.5)
 
         if schedule_time:
             if dashboard:
@@ -2037,11 +2480,17 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
             dashboard.render()
         return False
 
-def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, preview=False, pre_caption=None, custom_media=None, dashboard=None, task_key=None):
+def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, preview=False, pre_caption=None, custom_media=None, dashboard=None, task_key=None, affiliate_link=None, ai_content=None):
     wait = WebDriverWait(driver, 30)
     key_for_dash = task_key if task_key else post_path
     item_name = os.path.basename(task_key) if task_key else os.path.basename(post_path)
     is_file = os.path.isfile(post_path)
+    
+    meta = get_post_metadata(post_path)
+    if not affiliate_link and meta:
+        affiliate_link = meta.get("affiliate_link", "").strip() or None
+    if ai_content is None and meta:
+        ai_content = meta.get("ai_content", False)
     
     raw_media = custom_media if custom_media else get_media_files(post_path)
     media_files = [m if os.path.isabs(m) else os.path.join(post_path, m) for m in raw_media]
@@ -2104,6 +2553,8 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
             print(f"    {i+1}. {CLR_DIM}{os.path.basename(m)}{CLR_RESET}")
         if len(media_files) > 3:
             print(f"    ... dan {len(media_files)-3} lainnya.")
+        if affiliate_link:
+            print(f"  {CLR_BOLD}🛍️  Shopee/Afiliasi{CLR_RESET}: {CLR_YELLOW}{affiliate_link}{CLR_RESET}")
         print(f"  {CLR_BOLD}📝 Caption{CLR_RESET} :")
         for line in caption_text.splitlines():
             print(f"    {line}")
@@ -2140,7 +2591,7 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
             
         time.sleep(2.5) # Tunggu kemungkinan redirect FB (post/create)
         if "facebook.com/post/create" in driver.current_url:
-            return run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time, caption_text, media_files, dashboard, task_key)
+            return run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time, caption_text, media_files, dashboard, task_key, affiliate_link=affiliate_link, ai_content=ai_content)
             
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='dialog']")))
         human_delay(1, 1.5)
@@ -2217,6 +2668,17 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
             dashboard.current_job["caption"] = "Injected"
             dashboard.current_job["scheduling"] = "Menjadwalkan..." if schedule_time else "Memposting..."
             dashboard.render()
+
+        # Coba injeksi tautan afiliasi jika form/opsi tersedia
+        if affiliate_link:
+            inject_affiliate_link(driver, affiliate_link, log_func=lambda msg, is_success=False: log_step(msg, dashboard, is_success))
+            time.sleep(2)
+
+        # Aktifkan Toggle Konten AI di Facebook jika di-set ON
+        if ai_content:
+            toggle_ai_label(driver, enable=True, log_func=lambda msg, is_success=False: log_step(msg, dashboard, is_success))
+            time.sleep(1.5)
+
         update_post_status(post_path, "Tahap akhir (Post/Jadwalkan)...", 70)
         log_step("Tahap akhir posting...", dashboard)
         next_btn_xpath = (
@@ -2898,11 +3360,14 @@ if __name__ == "__main__":
         else:
             sched_str = temp_time.strftime("%Y-%m-%d %H:%M") if temp_time else None
             
+        meta_post = get_post_metadata(p)
         item_data_map[p] = {
             'caption': get_caption_text(p),
             'media_files': get_media_files(p),
             'schedule_time': sched_str,
-            'photo_captions': load_photo_captions(p)
+            'photo_captions': load_photo_captions(p),
+            'affiliate_link': meta_post.get('affiliate_link', '').strip() or None,
+            'ai_content': meta_post.get('ai_content', False)
         }
         if temp_time: temp_time += timedelta(minutes=interval_mins)
 
@@ -2927,8 +3392,10 @@ if __name__ == "__main__":
             sched_str = data.get('schedule_time')
             caption = data.get('caption')
             media_files = data.get('media_files', [])
+            affiliate_link = data.get('affiliate_link')
+            ai_content = data.get('ai_content')
             
-            if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=media_files, dashboard=dashboard):
+            if run_fb_scheduled_task(driver, sel_profile, item, sched_str, preview=is_preview, pre_caption=caption, custom_media=media_files, dashboard=dashboard, affiliate_link=affiliate_link, ai_content=ai_content):
                 # Jeda antar posting jika bukan terjadwal
                 if not sched_str and interval_mins > 0 and item != pending_items[-1]:
                     print(f"   {TAG_INFO} Menunggu {interval_mins} menit sebelum posting berikutnya...")

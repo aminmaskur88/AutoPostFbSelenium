@@ -80,6 +80,14 @@ HTML_TEMPLATE = """
         .btn-danger:hover { background-color: #dc2626; }
         .btn-icon { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 6px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
         .btn-icon:hover { background: var(--item-hover); color: var(--text-main); }
+
+        /* Switch Toggle UI */
+        .switch-toggle { position: relative; display: inline-block; width: 34px; height: 18px; flex-shrink: 0; }
+        .switch-toggle input { opacity: 0; width: 0; height: 0; }
+        .slider-toggle { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border-color); transition: .2s; border-radius: 18px; }
+        .slider-toggle:before { position: absolute; content: ""; height: 14px; width: 14px; left: 2px; bottom: 2px; background-color: white; transition: .2s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+        .switch-toggle input:checked + .slider-toggle { background-color: #2563eb; }
+        .switch-toggle input:checked + .slider-toggle:before { transform: translateX(16px); }
         
         /* Workspace */
         .workspace-area { grid-area: workspace; background-color: var(--bg-workspace); display: flex; flex-direction: column; overflow-y: auto; padding: 20px; }
@@ -347,6 +355,33 @@ HTML_TEMPLATE = """
                                 {{ item.caption }}
                             </div>
 
+                            {% if item.affiliate_link %}
+                                <div style="font-size:11px; background:rgba(238, 77, 45, 0.1); color:#ee4d2d; padding:4px 8px; border-radius:4px; display:flex; align-items:center; gap:4px; overflow:hidden;" title="{{ item.affiliate_link }}">
+                                    <span class="material-icons-round" style="font-size:13px; flex-shrink:0;">shopping_bag</span>
+                                    <a href="{{ item.affiliate_link }}" target="_blank" style="color:#ee4d2d; text-decoration:none; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">Shopee: {{ item.affiliate_link }}</a>
+                                    <button type="button" onclick="editCaption('{{ item.name|replace("'", "\\'") }}')" class="btn-icon" style="padding:2px; color:#ee4d2d; margin-left:auto;" title="Ubah Link Afiliasi">
+                                        <span class="material-icons-round" style="font-size:13px;">edit</span>
+                                    </button>
+                                </div>
+                            {% else %}
+                                <div style="margin-top:2px;">
+                                    <button type="button" onclick="editCaption('{{ item.name|replace("'", "\\'") }}')" class="btn-outline" style="font-size:10px; padding:3px 6px; width:100%; justify-content:center; border-style:dashed; color:var(--text-muted);" title="Tambah Link Shopee">
+                                        <span class="material-icons-round" style="font-size:12px;">add_link</span> + Link Shopee
+                                    </button>
+                                </div>
+                            {% endif %}
+
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-top:6px; padding:6px 10px; background:var(--bg-canvas); border-radius:6px; border:1px solid var(--border-color); font-size:11px;">
+                                <div style="display:flex; align-items:center; gap:5px; font-weight:600; color:{% if item.ai_content %}#2563eb{% else %}var(--text-muted){% endif %};" id="ai-label-{{ item.name }}">
+                                    <span class="material-icons-round" style="font-size:15px;">smart_toy</span>
+                                    <span>Konten AI</span>
+                                </div>
+                                <label class="switch-toggle" title="Aktifkan/Nonaktifkan Label AI Facebook">
+                                    <input type="checkbox" onchange="toggleAiCard('{{ item.name|replace("'", "\\'") }}', this.checked)" {% if item.ai_content %}checked{% endif %}>
+                                    <span class="slider-toggle"></span>
+                                </label>
+                            </div>
+
                             <div class="progress-container" id="progress-{{ item.name }}">
                                 <div class="progress-status">
                                     <span class="status-text">Uploading...</span>
@@ -442,9 +477,19 @@ HTML_TEMPLATE = """
                     <input type="text" class="input-box" id="postCta" placeholder="Misal: Jangan lupa share!">
                 </div>
                 <div>
+                    <label class="form-label">Link Afiliasi Produk (affiliate_link) - Opsional</label>
+                    <input type="text" class="input-box" id="postAffiliateLink" placeholder="Misal: https://s.shopee.co.id/...">
+                </div>
+                <div>
                     <label class="form-label">Hashtags (Pisahkan dengan Spasi)</label>
                     <input type="text" class="input-box" id="postHashtags" placeholder="Misal: viral trending fyp">
                     <small style="font-size:11px; color:var(--text-muted); margin-top:4px; display:block;">Simbol '#' akan otomatis ditambahkan oleh sistem.</small>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; margin-top:12px; padding:10px; background:var(--bg-canvas); border-radius:6px; border:1px solid var(--border-color);">
+                    <input type="checkbox" id="postAiContent" style="width:18px; height:18px; cursor:pointer;">
+                    <label for="postAiContent" style="cursor:pointer; font-weight:600; font-size:13px; display:flex; align-items:center; gap:6px; margin:0;">
+                        <span class="material-icons-round" style="color:#2563eb;">smart_toy</span> Aktifkan Label Konten AI (Facebook AI Info Label)
+                    </label>
                 </div>
             </div>
             <div class="modal-footer">
@@ -654,9 +699,32 @@ HTML_TEMPLATE = """
                     document.getElementById('postTitle').value = data.post_title || '';
                     document.getElementById('postSummary').value = data.summary || '';
                     document.getElementById('postCta').value = data.cta || '';
+                    document.getElementById('postAffiliateLink').value = data.affiliate_link || '';
                     document.getElementById('postHashtags').value = (data.hashtags || []).join(' ');
+                    
+                    let isAi = (data.ai_content !== undefined) ? !!data.ai_content : ((data.is_ai_generated !== undefined) ? !!data.is_ai_generated : (!!data.prompt || (data.post_title || '').toUpperCase().includes('AI')));
+                    document.getElementById('postAiContent').checked = isAi;
+
                     document.getElementById('editModal').classList.add('active');
                 }).catch(e => showToast('Gagal mengambil data dari server.', 'error'));
+        }
+
+        function toggleAiCard(folderName, isChecked) {
+            fetch('/api/toggle_ai', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ base_dir: selectedDir, folder_name: folderName, ai_content: isChecked })
+            }).then(r => r.json()).then(res => {
+                if(res.success) {
+                    const labelEl = document.getElementById(`ai-label-${folderName}`);
+                    if(labelEl) {
+                        labelEl.style.color = isChecked ? '#2563eb' : 'var(--text-muted)';
+                    }
+                    showToast(`Label Konten AI '${folderName}': ${isChecked ? 'ON' : 'OFF'}`, 'success');
+                } else {
+                    showToast('Gagal mengubah status Konten AI', 'error');
+                }
+            }).catch(e => showToast('Terjadi kesalahan jaringan!', 'error'));
         }
 
         function saveCaption() {
@@ -672,6 +740,8 @@ HTML_TEMPLATE = """
                     post_title: document.getElementById('postTitle').value,
                     summary: document.getElementById('postSummary').value,
                     cta: document.getElementById('postCta').value,
+                    affiliate_link: document.getElementById('postAffiliateLink').value.trim(),
+                    ai_content: document.getElementById('postAiContent').checked,
                     hashtags: document.getElementById('postHashtags').value.split(' ').filter(x => x.trim() !== '')
                 }
             };
@@ -855,6 +925,30 @@ def build_queue(base_dir):
         caption = read_caption(f_path)
         first_media = media_files_sorted[0] if media_files_sorted else None
         
+        affiliate_link = ""
+        ai_content = False
+        meta_dict = {}
+        meta_path = os.path.join(f_path, "post_meta.json")
+        plan_path = os.path.join(f_path, "plan_gemini.json")
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, 'r', encoding='utf-8') as mf:
+                    meta_dict = json.load(mf)
+            except: pass
+        elif os.path.exists(plan_path):
+            try:
+                with open(plan_path, 'r', encoding='utf-8') as pf:
+                    meta_dict = json.load(pf)
+            except: pass
+        
+        affiliate_link = meta_dict.get("affiliate_link", "").strip()
+        if "ai_content" in meta_dict:
+            ai_content = bool(meta_dict["ai_content"])
+        elif "is_ai_generated" in meta_dict:
+            ai_content = bool(meta_dict["is_ai_generated"])
+        elif "prompt" in meta_dict or "AI" in str(meta_dict.get("post_title", "")).upper():
+            ai_content = True
+
         item = {
             "name": f, "path": f_path, "ctime": os.path.getmtime(f_path),
             "type": "video" if is_video else "photo",
@@ -862,6 +956,8 @@ def build_queue(base_dir):
             "media_files": media_files_sorted,
             "first_media": first_media,
             "caption": caption,
+            "affiliate_link": affiliate_link,
+            "ai_content": ai_content,
             "uploaded": os.path.exists(marker)
         }
         
@@ -1011,7 +1107,7 @@ def post_now_api():
             log.write(f"[{time.ctime()}] CMD: python3 fb_uploader_scheduled.py --profile {profile_name} --path {folder_path} --limit 1 --mode 2 --interval 0 --headless\n")
 
         cmd = [
-            'python3', 'fb_uploader_scheduled.py',
+            sys.executable, 'fb_uploader_scheduled.py',
             '--profile', profile_name,
             '--path', folder_path,
             '--limit', '1',
@@ -1097,6 +1193,36 @@ def meta_api():
             except Exception as e:
                 return jsonify({"success": False, "error": str(e)})
         return jsonify({"success": False, "error": "Data atau path tidak valid"})
+
+@app.route("/api/toggle_ai", methods=["POST"])
+def toggle_ai_api():
+    data = request.json or {}
+    base_dir = data.get("base_dir")
+    folder_name = data.get("folder_name")
+    ai_content = bool(data.get("ai_content", False))
+    
+    if not base_dir or not folder_name:
+        return jsonify({"success": False, "error": "Parameter tidak lengkap"}), 400
+        
+    folder_path = os.path.join(base_dir, folder_name)
+    if not os.path.exists(folder_path):
+        return jsonify({"success": False, "error": "Folder tidak ditemukan"}), 404
+        
+    meta_file = os.path.join(folder_path, "post_meta.json")
+    meta = {}
+    if os.path.exists(meta_file):
+        try:
+            with open(meta_file, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+        except: pass
+    
+    meta["ai_content"] = ai_content
+    try:
+        with open(meta_file, 'w', encoding='utf-8') as f:
+            json.dump(meta, f, indent=4)
+        return jsonify({"success": True, "ai_content": ai_content})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/api/reorder", methods=["POST"])
 def reorder_api():
