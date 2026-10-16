@@ -8,7 +8,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
-from utils import setup_driver, cleanup_profile, get_lan_ip
+from utils import setup_driver, cleanup_profile, get_lan_ip, detect_media_upload_progress, update_post_status
 
 # Pastikan DISPLAY teratur untuk VNC di Termux
 if "com.termux" in os.environ.get("PREFIX", ""):
@@ -156,6 +156,7 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
 
     try:
         print("[*] Membuka Facebook...")
+        update_post_status(folder_post, "Membuka Facebook...", 10)
         if not headless and "com.termux" in os.environ.get("PREFIX", ""):
             lan_ip = get_lan_ip()
             print(f"    [!] (Opsional) Buka VNC Viewer -> {lan_ip}:5901 (PC/HP Lain) atau 127.0.0.1:5901 (Lokal)")
@@ -173,6 +174,7 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         scroll_to_top(driver)
 
         # Klik "What's on your mind?"
+        update_post_status(folder_post, "Membuka dialog posting...", 20)
         post_button_xpath = "//div[@role='button']//span[contains(text(), 'Apa yang Anda pikirkan')] | //div[@role='button']//span[contains(text(), \"What's on your mind\")]"
         try:
             target_el = wait.until(EC.element_to_be_clickable((By.XPATH, post_button_xpath)))
@@ -189,6 +191,7 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
 
         # --- INPUT CAPTION (Versi Original) ---
         print("[*] Menyiapkan caption dari metadata...")
+        update_post_status(folder_post, "Menyiapkan caption...", 30)
         caption_text = f"{meta.get('post_title', '')}\n\n{meta.get('summary', '')}\n\n{meta.get('cta', '')}\n\n" + " ".join(meta.get('hashtags', []))
         
         try:
@@ -228,6 +231,7 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
 
         # --- INPUT MEDIA (Versi Original) ---
         print("[*] Memasukkan media ke dalam postingan...")
+        update_post_status(folder_post, "Mengunggah media ke Facebook...", 40)
         try:
             file_input_xpath = "//input[@type='file' and contains(@accept, 'image')] | //input[@type='file' and contains(@accept, 'video')] | //input[@type='file']"
             file_inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, file_input_xpath)))
@@ -247,8 +251,14 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         except Exception as e:
             print(f"[-] Gagal dalam proses penambahan media: {e}")
 
-        # Tunggu Upload & Klik Submit
-        human_delay(10, 15)
+        # Tunggu Upload & Deteksi Progress Media Secara Real-time
+        detect_media_upload_progress(
+            driver,
+            [video_file],
+            post_path=folder_post,
+            progress_range=(40, 75)
+        )
+        human_delay(2, 3)
         
         # --- MENGKLIK TOMBOL BERIKUTNYA / SELESAI (JIKA ADA) ---
         print("[*] Mengecek apakah ada tombol 'Berikutnya' / 'Selesai'...")
@@ -376,20 +386,25 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
             
             if not is_error:
                 print("[+] Konfirmasi: Postingan berhasil terkirim!")
+                update_post_status(folder_post, "SELESAI!", 100)
                 with open(uploaded_marker, "w") as f:
                     f.write(f"Selesai: {time.strftime('%Y-%m-%d %H:%M:%S')}")
             else:
                 print("[!] Peringatan: Ada indikasi pesan error atau kendala pada halaman.")
+                update_post_status(folder_post, "Gagal: Indikasi pesan error pada halaman", 0)
                 move_to_back(base_dir, folder_name)
         except Exception as e:
             print(f"[-] Gagal konfirmasi postingan: {e}")
+            update_post_status(folder_post, f"Gagal konfirmasi: {e}", 0)
             move_to_back(base_dir, folder_name)
         except Exception as e:
             print(f"[-] Gagal kirim postingan: {e}")
+            update_post_status(folder_post, f"Gagal kirim: {e}", 0)
             move_to_back(base_dir, folder_name)
 
     except Exception as e:
         print(f"[!] Error saat eksekusi: {e}")
+        update_post_status(folder_post, f"Error: {e}", 0)
         move_to_back(base_dir, folder_name)
     finally:
         print("[*] Menunggu 1 menit sebelum menutup browser untuk memastikan stabilitas upload...")

@@ -33,7 +33,7 @@ if sys.platform == "win32":
         pass
 
 
-from utils import setup_driver, cleanup_profile
+from utils import setup_driver, cleanup_profile, detect_media_upload_progress
 from fb_uploader import manual_fallback
 
 # --- TERMINAL COLOR & STYLING UTILS ---
@@ -1426,10 +1426,10 @@ def group_stories_only(pending_items):
 
         for p in sorted_paths:
             if os.path.isdir(p):
-                # Urutkan gambar di dalam tiap folder episode secara natural (01.jpg, 02.jpg, dst.)
+                # Urutkan file media di dalam tiap folder episode secara natural
                 m_files = sorted([
                     os.path.join(p, f) for f in os.listdir(p) 
-                    if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp")) 
+                    if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov", ".avi", ".mkv", ".webm")) 
                     and not f.lower().startswith(("bersambung", "tamat"))
                 ], key=natural_sort_key)
                 
@@ -1487,7 +1487,9 @@ def split_stories_into_parts(story_items, story_map):
                 has_article_meta = os.path.exists(os.path.join(paths[0], "post_meta.json")) or os.path.exists(os.path.join(paths[0], "plan_gemini.json"))
 
             final_chunk = list(chunk)
-            if not has_article_meta and os.path.exists(suffix_img):
+            is_video = any(f.lower().endswith(('.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp')) for f in chunk)
+            # Jika postingan berupa video, gambar tamat / bersambung jangan dimasukkan otomatis
+            if not is_video and not has_article_meta and os.path.exists(suffix_img):
                 final_chunk.append(suffix_img)
                 
             # Bersihkan suffix episode/part lama (seperti " (1)", " (1) END", " END") dari title agar tidak ganda
@@ -2059,7 +2061,13 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
         if ai_content is None:
             ai_content = meta.get("ai_content", False)
             
+        # Proteksi: Jika upload video, jangan sertakan gambar tamat / bersambung otomatis ke post
+        has_video_file = any(m.lower().endswith(('.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp')) for m in media_files)
+        if has_video_file:
+            media_files = [m for m in media_files if not os.path.basename(m).lower().startswith(('tamat', 'bersambung'))]
+
         log_step_new("Beralih ke metode Uploader Tampilan Baru (post/create)...")
+        update_post_status(post_path, "Beralih ke tampilan baru...", 25)
         time.sleep(2)
         
         if dashboard:
@@ -2067,6 +2075,7 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
             dashboard.render()
 
         log_step_new("Menyiapkan caption ke clipboard (System Level)...")
+        update_post_status(post_path, "Menyiapkan caption...", 30)
         # Gunakan fungsi bawaan Windows untuk memaksa teks masuk ke clipboard tanpa diblokir browser
         import subprocess
         try:
@@ -2078,6 +2087,7 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
             time.sleep(1)
             
         log_step_new("Menyuntikkan caption ke Facebook...")
+        update_post_status(post_path, "Menyuntikkan caption...", 35)
         # Cari kotak teks editor spesifik dari Facebook (elemen yang bisa diketik)
         textbox_xpath = "//div[@role='textbox' and @contenteditable='true']"
         try:
@@ -2101,6 +2111,7 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
             dashboard.render()
 
         log_step_new(f"Mengunggah {len(media_files)} media...")
+        update_post_status(post_path, f"Mengunggah {len(media_files)} media...", 40)
         file_inputs = driver.find_elements(By.XPATH, "//input[@type='file']")
         
         # Kirim path file ke semua input file yang ada di halaman (untuk jaga-jaga FB menyembunyikan beberapa input palsu)
@@ -2126,80 +2137,17 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
                     except: pass
             except: pass
         
-        log_step_new("Mendeteksi progress upload media...")
-        last_percent = -1
-        start_wait = time.time()
-        max_upload_wait = max(120, len(media_files) * 60)
-        
-        while True:
-            elapsed = time.time() - start_wait
-            if elapsed >= max_upload_wait:
-                log_step_new("Batas waktu deteksi upload tercapai, melanjutkan langkah berikutnya...")
-                break
-                
-            found_percent = False
-            current_percent = -1
-            
-            # 1. Cek indikator % progress
-            try:
-                els = driver.find_elements(By.XPATH, "//*[contains(text(), '%') or contains(@aria-label, '%')]")
-                for el in els:
-                    try:
-                        txt = el.text or el.get_attribute("aria-label") or ""
-                        match = re.search(r'(\d+)%', txt)
-                        if match:
-                            current_percent = int(match.group(1))
-                            found_percent = True
-                            break
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-                
-            if found_percent and current_percent >= 0:
-                if current_percent != last_percent:
-                    last_percent = current_percent
-                    if dashboard:
-                        dashboard.current_job["upload"] = f"Mengunggah: {current_percent}%"
-                        dashboard.current_job["activity"] = f"Uploading media: {current_percent}%"
-                        dashboard.render()
-                    else:
-                        print(f"\r    {TAG_SUCCESS} Uploading: {CLR_GREEN}{current_percent}%{CLR_RESET}", end="")
-            
-            # Jika sebelumnya ada % dan sekarang sudah selesai / indikator hilang
-            if (last_percent >= 100) or (last_percent >= 0 and not found_percent):
-                log_step_new("Indikator progress upload media selesai.")
-                break
-                
-            # 2. Cek apakah tombol navigasi / posting sudah aktif (tidak disabled)
-            is_button_ready = False
-            try:
-                btn_selectors = (
-                    "//div[@role='button'][not(@aria-disabled='true')][.//span[contains(text(), 'Berikutnya') or contains(text(), 'Next') or contains(text(), 'Jadwalkan') or contains(text(), 'Schedule') or contains(text(), 'Posting') or contains(text(), 'Post') or contains(text(), 'Kirim')]]"
-                    "| //div[@role='button'][not(@aria-disabled='true')][@aria-label='Berikutnya' or @aria-label='Next' or @aria-label='Jadwalkan' or @aria-label='Schedule' or @aria-label='Posting' or @aria-label='Post' or @aria-label='Kirim']"
-                )
-                ready_btns = driver.find_elements(By.XPATH, btn_selectors)
-                for b in ready_btns:
-                    try:
-                        if b.is_displayed():
-                            is_button_ready = True
-                            break
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-                
-            # Jika tombol aktif sudah muncul setelah minimal 5 detik upload
-            if is_button_ready and elapsed > 5:
-                log_step_new("Media siap diproses (tombol navigasi/posting aktif terdeteksi).")
-                break
-                
-            # Fallback timeout cerdas jika tombol atau indikator % tidak terdeteksi
-            if elapsed > max(15, len(media_files) * 10):
-                log_step_new("Timeout cerdas tercapai, media dianggap telah diunggah.")
-                break
-                
-            time.sleep(2)
+        # Deteksi Progress Upload Media Secara Real-time
+        upload_ok, upload_msg = detect_media_upload_progress(
+            driver,
+            media_files,
+            post_path=post_path,
+            dashboard=dashboard,
+            log_func=log_step_new,
+            progress_range=(40, 75)
+        )
+        if not upload_ok:
+            log_step_new(f"Catatan deteksi upload: {upload_msg}")
 
         if dashboard:
             dashboard.current_job["upload"] = "Completed"
@@ -2496,6 +2444,11 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
     media_files = [m if os.path.isabs(m) else os.path.join(post_path, m) for m in raw_media]
     media_files = [m for m in media_files if os.path.exists(m)]
     
+    # Proteksi: Jika upload video, jangan sertakan gambar tamat / bersambung otomatis ke post
+    has_video_file = any(m.lower().endswith(('.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp')) for m in media_files)
+    if has_video_file:
+        media_files = [m for m in media_files if not os.path.basename(m).lower().startswith(('tamat', 'bersambung'))]
+    
     if not media_files:
         print(f"    {TAG_WARNING} Skip: Tidak ada media di {item_name}")
         return False
@@ -2610,57 +2563,16 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
         ActionChains(driver).key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
         
         # 3. Deteksi Progress Upload
-        print(f"    {TAG_INFO} Mendeteksi progress upload media...")
-        last_percent = -1
-        start_wait = time.time()
-        while time.time() - start_wait < 600: # Max 10 menit
-            try:
-                # Cari angka % di dialog (bisa di teks atau aria-label)
-                els = driver.find_elements(By.XPATH, "//div[@role='dialog']//*[contains(text(), '%') or contains(@aria-label, '%')]")
-                found_percent = False
-                for el in els:
-                    txt = el.text or el.get_attribute("aria-label") or ""
-                    match = re.search(r'(\d+)%', txt)
-                    if match:
-                        percent = int(match.group(1))
-                        found_percent = True
-                        if percent != last_percent:
-                            # Update ke dashboard: range 40% - 70% adalah untuk upload media
-                            ui_progress = 40 + int(percent * 0.3)
-                            update_post_status(post_path, f"Mengunggah media: {percent}%", ui_progress)
-                            print(f"\r    {TAG_SUCCESS} Uploading: {CLR_GREEN}{percent}%{CLR_RESET}", end="")
-                            last_percent = percent
-                            if dashboard:
-                                dashboard.current_job["upload"] = f"Mengunggah: {percent}% [" + "█" * (percent // 10) + "░" * (10 - (percent // 10)) + "]"
-                                dashboard.render()
-                        break
-                
-                # Jika indikator % hilang tapi sebelumnya ada, berarti selesai
-                if not found_percent and last_percent >= 0:
-                    print(f"\n    {TAG_SUCCESS} Indikator progress hilang, upload selesai.")
-                    break
-                
-                # Fallback: Cek jika tombol 'Berikutnya'/'Next' atau 'Kirim'/'Post' sudah muncul dan aktif
-                if time.time() - start_wait > 5:
-                    check_btn_xpath = (
-                        "//div[@role='dialog']//div[@aria-label='Berikutnya' or @aria-label='Next' or @aria-label='Selesai' or @aria-label='Done']"
-                        "| //div[@role='dialog']//div[@role='button'][.//span[text()='Kirim' or text()='Posting' or text()='Post']]"
-                        "| //div[@role='dialog']//div[@aria-label='Kirim' or @aria-label='Posting' or @aria-label='Post']"
-                    )
-                    check_btns = driver.find_elements(By.XPATH, check_btn_xpath)
-                    
-                    btn_ready = False
-                    for b in check_btns:
-                        if b.is_displayed():
-                            if b.get_attribute("aria-disabled") != "true":
-                                btn_ready = True
-                                break
-                                
-                    if btn_ready:
-                        print(f"\n    {TAG_SUCCESS} Tombol navigasi/post terdeteksi aktif, upload selesai.")
-                        break
-            except: pass
-            time.sleep(2)
+        upload_ok, upload_msg = detect_media_upload_progress(
+            driver,
+            media_files,
+            post_path=post_path,
+            dashboard=dashboard,
+            log_func=lambda msg, is_success=False: log_step(msg, dashboard, is_success),
+            progress_range=(40, 75)
+        )
+        if not upload_ok:
+            log_step(f"Catatan upload media: {upload_msg}", dashboard)
 
         # 4. Posting / Penjadwalan
         if dashboard:
