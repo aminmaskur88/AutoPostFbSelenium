@@ -514,6 +514,21 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                 </label>
             </div>'''
 
+            thumb_info_html = ""
+            post_meta_obj = get_post_metadata(path)
+            thumb_val = post_meta_obj.get("thumbnail") or post_meta_obj.get("custom_thumbnail")
+            if thumb_val:
+                thumb_name_display = os.path.basename(str(thumb_val).strip())
+                thumb_info_html = f'''
+                <div style="background:#fdf4ff; border:1px solid #f0abfc; border-radius:6px; padding:6px 12px; margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+                    <span style="font-size:15px;">🖼️</span>
+                    <div>
+                        <strong style="color:#86198f; font-size:12px;">Custom Thumbnail:</strong>
+                        <span style="font-size:12px; color:#a21caf; margin-left:4px; font-weight:600;">{html.escape(thumb_name_display)}</span>
+                        <span style="font-size:11px; color:#701a75; margin-left:6px;">(Cover video khusus, disembunyikan dari slide media preview)</span>
+                    </div>
+                </div>'''
+
             items_html += f"""
             <div class="item-card" data-index="{i}">
                 <div class="album-header">
@@ -527,6 +542,7 @@ class AlbumPreviewRequestHandler(http.server.BaseHTTPRequestHandler):
                 <div class="caption-container">
                     {affiliate_input_html}
                     {ai_toggle_html}
+                    {thumb_info_html}
                     <textarea onchange="editCaption({i}, this.value)">{data['caption']}</textarea>
                 </div>
                 <div class="photos-container" id="photos-container-{i}">
@@ -999,6 +1015,8 @@ def natural_sort_key(s):
     basename = os.path.splitext(os.path.basename(s))[0]
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', basename)]
 
+
+
 def get_media_files(path):
     valid_ext = (".mp4", ".jpg", ".png", ".jpeg", ".webp")
     if os.path.isfile(path):
@@ -1006,8 +1024,17 @@ def get_media_files(path):
     
     media = []
     if os.path.exists(path):
+        meta = get_post_metadata(path)
+        thumb_name = ""
+        if isinstance(meta, dict):
+            t_val = meta.get("thumbnail") or meta.get("custom_thumbnail")
+            if t_val:
+                thumb_name = os.path.basename(str(t_val).strip()).lower()
+
         for f in os.listdir(path):
             if f.lower().endswith(valid_ext) and not f.lower().startswith(("bersambung", "tamat")):
+                if thumb_name and f.lower() == thumb_name:
+                    continue
                 file_path = os.path.abspath(os.path.join(path, f))
                 media.append(file_path)
     
@@ -1351,6 +1378,211 @@ def toggle_ai_label(driver, enable=True, log_func=None):
         log(f"Peringatan saat memproses toggle Label AI: {e}")
         return False
 
+def upload_custom_video_thumbnail(driver, post_path, media_files, log_func=None):
+    """
+    Mengunggah custom thumbnail ke opsi video di Facebook composer.
+    Mendukung:
+    1. Facebook Composer Tampilan Baru (facebook.com/post/create):
+       Klik tombol 'Pilih gambar mini' / 'Choose thumbnail' (atau 'Pilih sampul' di mode Reel),
+       injeksi file ke input khusus gambar (accept='.png,.jpg,.jpeg' / image-only),
+       lalu tunggu tombol 'Simpan' / 'Save' aktif dan klik.
+    2. Facebook Dialog Klasik:
+       Klik 'Opsi video' / 'Video options' -> 'Gambar mini' -> 'Unggah gambar' ->
+       injeksi file ke input khusus gambar -> klik 'Simpan'.
+    """
+    def log(msg, is_success=False):
+        if log_func:
+            log_func(msg, is_success=is_success)
+        else:
+            print(f"    {'[✓]' if is_success else '[i]'} {msg}")
+
+    # 1. Cek apakah ada file video di media_files
+    has_video = any(m.lower().endswith(('.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp')) for m in media_files)
+    if not has_video:
+        return False
+
+    # 2. Cek metadata thumbnail
+    meta = get_post_metadata(post_path)
+    thumb_val = meta.get("thumbnail") or meta.get("custom_thumbnail")
+    if not thumb_val:
+        return False
+
+    # 3. Cari path file thumbnail
+    target_dir = post_path if os.path.isdir(post_path) else os.path.dirname(post_path)
+    thumb_path = thumb_val if os.path.isabs(thumb_val) else os.path.join(target_dir, thumb_val)
+    if not os.path.exists(thumb_path):
+        candidate = os.path.join(target_dir, os.path.basename(thumb_val))
+        if os.path.exists(candidate):
+            thumb_path = candidate
+        else:
+            log(f"Custom thumbnail '{thumb_val}' tidak ditemukan di {target_dir}, dilewati.")
+            return False
+
+    thumb_abs_path = os.path.abspath(thumb_path)
+    log(f"Menyiapkan custom thumbnail: {os.path.basename(thumb_abs_path)}...")
+
+    def _find_image_only_file_inputs():
+        """Cari input[type='file'] yang KHUSUS menerima gambar (bukan video) agar tidak salah upload ke media utama."""
+        all_inputs = driver.find_elements(By.XPATH, "//div[@role='dialog']//input[@type='file']")
+        if not all_inputs:
+            all_inputs = driver.find_elements(By.XPATH, "//input[@type='file']")
+
+        img_only = []
+        for fi in all_inputs:
+            try:
+                acc = (fi.get_attribute("accept") or "").lower()
+                if "video" in acc or ".mp4" in acc or ".mov" in acc:
+                    continue
+                if any(tok in acc for tok in ("image", ".png", ".jpg", ".jpeg", ".webp")):
+                    img_only.append(fi)
+            except Exception:
+                pass
+        return img_only
+
+    try:
+        time.sleep(1.5)
+
+        # === JALUR A: Tampilan Baru (facebook.com/post/create) ===
+        # Tombol langsung di panel kiri: 'Pilih gambar mini' / 'Choose thumbnail' atau 'Pilih sampul' / 'Sampul'
+        new_ui_thumb_xpath = (
+            "//div[@role='button'][.//span[contains(text(), 'Pilih gambar mini') or contains(text(), 'Choose thumbnail') or contains(text(), 'Ubah gambar mini') or contains(text(), 'Change thumbnail')]]"
+            "| //div[@role='button'][contains(normalize-space(.), 'Pilih gambar mini') or contains(normalize-space(.), 'Choose thumbnail')]"
+            "| //div[@role='button'][@aria-label='Pilih sampul' or @aria-label='Choose cover' or @aria-label='Edit cover' or @aria-label='Pilih gambar mini' or @aria-label='Choose thumbnail']"
+        )
+        new_ui_btns = [b for b in driver.find_elements(By.XPATH, new_ui_thumb_xpath) if b.is_displayed()]
+
+        opened_modal = False
+        if new_ui_btns:
+            log("Membuka modal 'Pilih gambar mini' (Tampilan Baru)...")
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", new_ui_btns[0])
+            time.sleep(0.5)
+            driver.execute_script("arguments[0].click();", new_ui_btns[0])
+            time.sleep(2.0)
+            opened_modal = True
+        else:
+            # === JALUR B: Dialog Klasik ('Opsi video' / 'Video options') ===
+            # Hindari klik tombol generic 'Edit' pada Tampilan Baru yang membuka editor Audio/Potong.
+            btn_opsi_xpath = (
+                "//div[@role='dialog' or @role='main']//div[@role='button'][.//span[contains(text(), 'Opsi video') or contains(text(), 'Video options') or contains(text(), 'Opsi Video')]]"
+                "| //div[@role='dialog' or @role='main']//div[@aria-label='Opsi video' or @aria-label='Video options']"
+                "| //div[@role='dialog' or @role='main']//div[@role='button'][contains(@aria-label, 'Opsi video') or contains(@aria-label, 'Video options')]"
+            )
+            opsi_btns = [b for b in driver.find_elements(By.XPATH, btn_opsi_xpath) if b.is_displayed()]
+            if not opsi_btns:
+                log("Tombol 'Pilih gambar mini' / 'Opsi video' tidak ditemukan di tampilan postingan.")
+                return False
+
+            log("Mengklik 'Opsi video' (Dialog Klasik)...")
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", opsi_btns[0])
+            time.sleep(0.5)
+            driver.execute_script("arguments[0].click();", opsi_btns[0])
+            time.sleep(2.5)
+            opened_modal = True
+
+            # Di modal Opsi video klasik: buka tab 'Gambar mini' / 'Thumbnail'
+            tab_thumb_xpath = (
+                "//div[@role='dialog']//div[@role='button' or @role='tab'][.//span[contains(text(), 'Gambar mini') or contains(text(), 'Thumbnail')]]"
+                "| //div[@role='dialog']//span[text()='Gambar mini' or text()='Thumbnail']/ancestor::div[@role='button' or @role='tab'][1]"
+                "| //div[@role='dialog']//div[@aria-label='Gambar mini' or @aria-label='Thumbnail']"
+            )
+            thumb_tabs = [t for t in driver.find_elements(By.XPATH, tab_thumb_xpath) if t.is_displayed()]
+            if thumb_tabs:
+                log("Membuka menu 'Gambar mini'...")
+                driver.execute_script("arguments[0].click();", thumb_tabs[0])
+                time.sleep(1.5)
+
+            # Klik opsi radio/tab 'Unggah gambar' / 'Upload image' jika ada (dialog klasik)
+            upload_choice_xpath = (
+                "//div[@role='dialog']//div[@role='button' or @role='radio' or @role='tab'][.//span[contains(text(), 'Unggah gambar') or contains(text(), 'Upload image') or contains(text(), 'Unggah Gambar')]]"
+                "| //div[@role='dialog']//span[contains(text(), 'Unggah gambar') or contains(text(), 'Upload image')]/ancestor::div[@role='button' or @role='radio'][1]"
+                "| //div[@role='dialog']//div[contains(@aria-label, 'Unggah gambar') or contains(@aria-label, 'Upload image')]"
+            )
+            choice_btns = [c for c in driver.find_elements(By.XPATH, upload_choice_xpath) if c.is_displayed()]
+            if choice_btns:
+                log("Memilih opsi 'Unggah gambar'...")
+                driver.execute_script("arguments[0].click();", choice_btns[0])
+                time.sleep(1.5)
+
+        if not opened_modal:
+            return False
+
+        # 4. Injeksi file thumbnail HANYA ke input[type='file'] khusus gambar (accept .png/.jpg/.jpeg atau image/* tanpa video)
+        img_inputs = _find_image_only_file_inputs()
+        if not img_inputs:
+            time.sleep(1.5)
+            img_inputs = _find_image_only_file_inputs()
+
+        uploaded = False
+        for fi in reversed(img_inputs):
+            try:
+                fi.send_keys(thumb_abs_path)
+                uploaded = True
+                break
+            except Exception:
+                pass
+
+        if not uploaded:
+            log("Peringatan: Tidak menemukan input file khusus gambar di modal thumbnail (dibatalkan agar tidak salah upload ke media utama).")
+            return False
+
+        log(f"File custom thumbnail berhasil diunggah: {os.path.basename(thumb_abs_path)}", is_success=True)
+
+        # 5. Pada Tampilan Baru ('Pilih gambar mini'), setelah file gambar diunggah modal biasanya OTOMATIS tertutup
+        #    dan thumbnail langsung terpilih. Pada Dialog Klasik / mode lain, tombol 'Simpan' / 'Save' perlu diklik.
+        thumb_modal_xpath = (
+            "//div[@role='dialog' and (@aria-label='Pilih gambar mini' or @aria-label='Choose thumbnail' "
+            "or @aria-label='Pilih sampul' or @aria-label='Choose cover' "
+            "or .//span[text()='Pilih gambar mini' or text()='Choose thumbnail' or text()='Opsi video' or text()='Video options'])]"
+        )
+        thumb_modal_save_xpath = (
+            f"{thumb_modal_xpath}//div[@role='button'][not(@aria-disabled='true')]"
+            "[.//span[text()='Simpan' or text()='Save'] or @aria-label='Simpan' or @aria-label='Save']"
+        )
+        generic_save_xpath = (
+            "//div[@role='dialog']//div[@role='button'][not(@aria-disabled='true')][.//span[text()='Simpan' or text()='Save']]"
+            "| //div[@role='dialog']//div[@role='button'][@aria-label='Simpan' or @aria-label='Save'][not(@aria-disabled='true')]"
+        )
+
+        time.sleep(2.0)
+        save_btn = None
+        modal_auto_closed = False
+        for _ in range(12):
+            open_modals = [m for m in driver.find_elements(By.XPATH, thumb_modal_xpath) if m.is_displayed()]
+            if not open_modals:
+                modal_auto_closed = True
+                break
+
+            candidates = [b for b in driver.find_elements(By.XPATH, thumb_modal_save_xpath) if b.is_displayed()]
+            if not candidates:
+                # Fallback: pastikan tidak mengklik ikon 'Simpan' di pratinjau postingan (harus punya teks 'Simpan'/'Save')
+                candidates = [
+                    b for b in driver.find_elements(By.XPATH, generic_save_xpath)
+                    if b.is_displayed() and (b.text or "").strip().lower() in ("simpan", "save")
+                ]
+            if candidates:
+                save_btn = candidates[-1]
+                break
+            time.sleep(1)
+
+        if modal_auto_closed:
+            log("Custom thumbnail berhasil diterapkan (modal otomatis tertutup)!", is_success=True)
+            return True
+        elif save_btn:
+            log("Menyimpan pengaturan custom thumbnail...")
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", save_btn)
+            time.sleep(0.3)
+            driver.execute_script("arguments[0].click();", save_btn)
+            time.sleep(2.5)
+            log("Custom thumbnail berhasil diterapkan!", is_success=True)
+            return True
+        else:
+            log("Tombol 'Simpan' aktif pada modal thumbnail tidak ditemukan.")
+            return False
+
+    except Exception as e:
+        log(f"Peringatan saat menambahkan custom thumbnail: {e}")
+        return False
+
 def get_caption_text(post_path):
     """Membangun caption utama dari post_meta.json (Logic ala reference script)."""
     post_path_norm = os.path.normpath(post_path)
@@ -1427,12 +1659,7 @@ def group_stories_only(pending_items):
         for p in sorted_paths:
             if os.path.isdir(p):
                 # Urutkan file media di dalam tiap folder episode secara natural
-                m_files = sorted([
-                    os.path.join(p, f) for f in os.listdir(p) 
-                    if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov", ".avi", ".mkv", ".webm")) 
-                    and not f.lower().startswith(("bersambung", "tamat"))
-                ], key=natural_sort_key)
-                
+                m_files = get_media_files(p)
                 all_media.extend(m_files)
             else:
                 all_media.append(p)
@@ -2112,14 +2339,17 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
 
         log_step_new(f"Mengunggah {len(media_files)} media...")
         update_post_status(post_path, f"Mengunggah {len(media_files)} media...", 40)
-        file_inputs = driver.find_elements(By.XPATH, "//input[@type='file']")
+        # Prioritaskan input file di dalam dialog composer agar tidak mengunggah ganda ke feed belakang / sub-editor Reel
+        file_inputs = driver.find_elements(By.XPATH, "//div[@role='dialog']//input[@type='file']")
+        if not file_inputs:
+            file_inputs = driver.find_elements(By.XPATH, "//input[@type='file']")
         
-        # Kirim path file ke semua input file yang ada di halaman (untuk jaga-jaga FB menyembunyikan beberapa input palsu)
         upload_success = False
         for inp in file_inputs:
             try:
                 inp.send_keys("\n".join(media_files))
                 upload_success = True
+                break
             except:
                 pass
                 
@@ -2130,10 +2360,12 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
                 btn_foto = driver.find_element(By.XPATH, "//div[@aria-label='Foto/video' or @aria-label='Photo/video']")
                 driver.execute_script("arguments[0].click();", btn_foto)
                 time.sleep(2)
-                file_inputs = driver.find_elements(By.XPATH, "//input[@type='file']")
+                file_inputs = driver.find_elements(By.XPATH, "//div[@role='dialog']//input[@type='file']") or driver.find_elements(By.XPATH, "//input[@type='file']")
                 for inp in file_inputs:
                     try:
                         inp.send_keys("\n".join(media_files))
+                        upload_success = True
+                        break
                     except: pass
             except: pass
         
@@ -2162,6 +2394,10 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
         if ai_content:
             toggle_ai_label(driver, enable=True, log_func=log_step_new)
             time.sleep(1.5)
+
+        # Unggah Custom Thumbnail Video jika ada
+        upload_custom_video_thumbnail(driver, post_path, media_files, log_func=log_step_new)
+        time.sleep(1.5)
 
         if schedule_time:
             if dashboard:
@@ -2590,6 +2826,10 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
         if ai_content:
             toggle_ai_label(driver, enable=True, log_func=lambda msg, is_success=False: log_step(msg, dashboard, is_success))
             time.sleep(1.5)
+
+        # Unggah Custom Thumbnail Video jika ada
+        upload_custom_video_thumbnail(driver, post_path, media_files, log_func=lambda msg, is_success=False: log_step(msg, dashboard, is_success))
+        time.sleep(1.5)
 
         update_post_status(post_path, "Tahap akhir (Post/Jadwalkan)...", 70)
         log_step("Tahap akhir posting...", dashboard)

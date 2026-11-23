@@ -916,14 +916,6 @@ def build_queue(base_dir):
         if not os.path.isdir(f_path): continue
             
         marker = os.path.join(f_path, "uploadedfb.txt")
-        media_files_full = [file for file in os.listdir(f_path) if file.lower().endswith((".mp4", ".mov", ".avi", ".jpg", ".png", ".jpeg", ".webp"))]
-        
-        if not media_files_full: continue
-            
-        media_files_sorted = sorted(media_files_full)
-        is_video = any(m.lower().endswith((".mp4", ".mov", ".avi")) for m in media_files_full)
-        caption = read_caption(f_path)
-        first_media = media_files_sorted[0] if media_files_sorted else None
         
         affiliate_link = ""
         ai_content = False
@@ -940,6 +932,25 @@ def build_queue(base_dir):
                 with open(plan_path, 'r', encoding='utf-8') as pf:
                     meta_dict = json.load(pf)
             except: pass
+
+        thumb_name = ""
+        if isinstance(meta_dict, dict):
+            t_val = meta_dict.get("thumbnail") or meta_dict.get("custom_thumbnail")
+            if t_val:
+                thumb_name = os.path.basename(str(t_val).strip()).lower()
+
+        media_files_full = [
+            file for file in os.listdir(f_path) 
+            if file.lower().endswith((".mp4", ".mov", ".avi", ".jpg", ".png", ".jpeg", ".webp"))
+            and (not thumb_name or file.lower() != thumb_name)
+        ]
+        
+        if not media_files_full: continue
+            
+        media_files_sorted = sorted(media_files_full)
+        is_video = any(m.lower().endswith((".mp4", ".mov", ".avi")) for m in media_files_full)
+        caption = read_caption(f_path)
+        first_media = media_files_sorted[0] if media_files_sorted else None
         
         affiliate_link = meta_dict.get("affiliate_link", "").strip()
         if "ai_content" in meta_dict:

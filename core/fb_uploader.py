@@ -131,9 +131,17 @@ def run_fb_simulation(profile_name, folder_post, headless=False):
         print(f"[!] Gagal membaca metadata: {e}")
 
     # Cari file media
+    thumb_name = ""
+    if isinstance(meta, dict):
+        t_val = meta.get("thumbnail") or meta.get("custom_thumbnail")
+        if t_val:
+            thumb_name = os.path.basename(str(t_val).strip()).lower()
+
     video_file = None
     for f in os.listdir(folder_post):
-        if f.lower().endswith((".mp4", ".jpg", ".png", ".jpeg")):
+        if f.lower().endswith((".mp4", ".mov", ".avi", ".jpg", ".png", ".jpeg")):
+            if thumb_name and f.lower() == thumb_name:
+                continue
             video_file = os.path.abspath(os.path.join(folder_post, f))
             break
     
