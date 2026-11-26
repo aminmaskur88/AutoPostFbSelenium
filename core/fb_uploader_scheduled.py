@@ -2403,52 +2403,155 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
             if dashboard:
                 dashboard.current_job["scheduling"] = "Mencari menu..."
                 dashboard.render()
-            log_step_new("Mencari ikon 'Opsi Penjadwalan'...")
+            log_step_new("Mencari ikon/opsi 'Opsi Penjadwalan'...")
             
-            # 1. Buka menu penjadwalan
-            try:
-                btn_jadwal_xpath = (
-                    "//div[@role='button']//span[text()='Jadwalkan' or text()='Jadwalkan postingan' or text()='Schedule' or text()='Schedule post' or contains(text(), 'Opsi penjadwalan') or contains(text(), 'Scheduling options')]"
-                    "| //div[@role='button'][@aria-label='Jadwalkan' or @aria-label='Jadwalkan postingan' or @aria-label='Schedule' or @aria-label='Schedule post' or @aria-label='Opsi penjadwalan']"
-                )
-                
-                jadwal_btns = driver.find_elements(By.XPATH, btn_jadwal_xpath)
-                visible_jadwal = [b for b in jadwal_btns if b.is_displayed()]
-                
-                if visible_jadwal:
-                    driver.execute_script("arguments[0].click();", visible_jadwal[-1])
-                else:
-                    # Cek tombol 'Berikutnya' / 'Next' terlebih dahulu jika belum terbuka
-                    btn_next_xpath = "//div[@role='button'][.//span[text()='Berikutnya' or text()='Next']] | //div[@aria-label='Berikutnya' or @aria-label='Next']"
-                    next_btns = driver.find_elements(By.XPATH, btn_next_xpath)
-                    visible_next = [b for b in next_btns if b.is_displayed() and b.get_attribute("aria-disabled") != "true"]
-                    if visible_next:
-                        log_step_new("Mengklik 'Berikutnya' untuk menampilkan opsi jadwal...")
-                        driver.execute_script("arguments[0].click();", visible_next[-1])
-                        time.sleep(2)
-                        jadwal_btns = driver.find_elements(By.XPATH, btn_jadwal_xpath)
-                        visible_jadwal = [b for b in jadwal_btns if b.is_displayed()]
-                        if visible_jadwal:
-                            driver.execute_script("arguments[0].click();", visible_jadwal[-1])
+            def _find_visible_schedule_inputs():
+                """Cari input tanggal & jam di dialog maupun halaman composer (bukan search/file/radio)."""
+                raw_inputs = driver.find_elements(By.XPATH, "//div[@role='dialog']//input | //form//input | //input")
+                candidates = []
+                seen = set()
+                for inp in raw_inputs:
+                    try:
+                        if inp.id in seen:
+                            continue
+                        seen.add(inp.id)
+                        if not inp.is_displayed():
+                            continue
+                        itype = (inp.get_attribute("type") or "text").lower()
+                        if itype in ("file", "hidden", "radio", "checkbox", "search", "submit", "button"):
+                            continue
+                        aria = (inp.get_attribute("aria-label") or "").lower()
+                        placeholder = (inp.get_attribute("placeholder") or "").lower()
+                        role = (inp.get_attribute("role") or "").lower()
+                        if role == "searchbox" or "cari" in aria or "search" in aria or "cari" in placeholder or "search" in placeholder:
+                            continue
+                        # Abaikan input link afiliasi / judul jika ada
+                        if "tautan" in aria or "link" in aria or "url" in aria or "judul" in aria or "title" in aria:
+                            continue
+                        candidates.append(inp)
+                    except Exception:
+                        continue
 
-                if not visible_jadwal:
-                    log_step_new("Layar sempit (portrait) terdeteksi. Membuka menu 'Lainnya' (...)")
-                    btn_lainnya_xpath = "//div[@aria-label='Lainnya' or @aria-label='More' or @aria-label='Opsi' or @aria-label='Options' or @aria-label='See more' or @aria-label='Lihat selengkapnya']"
-                    btn_lainnya = driver.find_elements(By.XPATH, btn_lainnya_xpath)
-                    if btn_lainnya and btn_lainnya[-1].is_displayed():
-                        driver.execute_script("arguments[0].click();", btn_lainnya[-1])
+                date_inp = None
+                time_inp = None
+                for inp in candidates:
+                    meta_txt = " ".join([
+                        (inp.get_attribute("aria-label") or ""),
+                        (inp.get_attribute("placeholder") or ""),
+                        (inp.get_attribute("name") or ""),
+                        (inp.get_attribute("value") or ""),
+                    ]).lower()
+                    if not date_inp and any(k in meta_txt for k in ("tanggal", "date", "hh/bb", "dd/mm", "mm/dd", "yyyy", "tttt", "/202", "2026", "2027")):
+                        date_inp = inp
+                    elif not time_inp and any(k in meta_txt for k in ("waktu", "jam", "time", "hh:mm", "jj:mm", ":")):
+                        time_inp = inp
+
+                if date_inp and time_inp:
+                    return date_inp, time_inp
+                if len(candidates) >= 2:
+                    return candidates[-2], candidates[-1]
+                return None, None
+
+            def _enable_schedule_toggle_or_radio():
+                """Aktifkan switch/radio 'Jadwalkan untuk nanti' / 'Atur tanggal dan waktu' jika ada."""
+                # 1. Cek radio / opsi 'Jadwalkan untuk nanti' / 'Schedule for later'
+                radio_xpath = (
+                    "//*[@role='radio' or @role='switch' or @role='checkbox']"
+                    "[contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'jadwalkan') "
+                    "or contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'schedule') "
+                    "or contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'tanggal dan waktu') "
+                    "or contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'date and time')]"
+                    " | //label[.//span[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'jadwalkan untuk nanti') "
+                    "or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'schedule for later') "
+                    "or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'atur tanggal dan waktu') "
+                    "or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'set date and time')]]"
+                    " | //div[@role='button' or @role='radio'][.//span[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'jadwalkan untuk nanti') "
+                    "or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'schedule for later') "
+                    "or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'atur tanggal dan waktu') "
+                    "or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'set date and time')]]"
+                )
+                els = [e for e in driver.find_elements(By.XPATH, radio_xpath) if e.is_displayed()]
+                for el in els:
+                    try:
+                        checked = (el.get_attribute("aria-checked") or "").lower()
+                        if checked == "true":
+                            return True
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", el)
+                        time.sleep(0.3)
+                        driver.execute_script("arguments[0].click();", el)
+                        time.sleep(1.5)
+                        return True
+                    except Exception:
+                        continue
+                return False
+
+            # 1. Buka menu penjadwalan (jika input tanggal/jam belum langsung terlihat)
+            try:
+                date_input, time_input = _find_visible_schedule_inputs()
+                if not (date_input and time_input):
+                    _enable_schedule_toggle_or_radio()
+                    date_input, time_input = _find_visible_schedule_inputs()
+
+                if not (date_input and time_input):
+                    btn_jadwal_xpath = (
+                        "//div[@role='button']//span[text()='Opsi penjadwalan' or text()='Scheduling options' "
+                        "or contains(text(), 'Opsi penjadwalan') or contains(text(), 'Scheduling options') "
+                        "or text()='Jadwalkan untuk nanti' or text()='Schedule for later' "
+                        "or text()='Jadwalkan' or text()='Jadwalkan postingan' or text()='Schedule' or text()='Schedule post']"
+                        "| //div[@role='button'][@aria-label='Opsi penjadwalan' or @aria-label='Scheduling options' "
+                        "or @aria-label='Jadwalkan' or @aria-label='Jadwalkan postingan' or @aria-label='Schedule' or @aria-label='Schedule post']"
+                    )
+                    
+                    jadwal_btns = driver.find_elements(By.XPATH, btn_jadwal_xpath)
+                    visible_jadwal = [b for b in jadwal_btns if b.is_displayed()]
+                    
+                    if visible_jadwal:
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", visible_jadwal[-1])
+                        time.sleep(0.3)
+                        driver.execute_script("arguments[0].click();", visible_jadwal[-1])
                         time.sleep(2)
-                        jadwal_btns = driver.find_elements(By.XPATH, btn_jadwal_xpath)
-                        visible_jadwal = [b for b in jadwal_btns if b.is_displayed()]
-                        if visible_jadwal:
-                            driver.execute_script("arguments[0].click();", visible_jadwal[-1])
-                        else:
-                            raise Exception("Tidak ada tombol Jadwal di menu Lainnya.")
                     else:
-                        raise Exception("Tombol Jadwalkan tidak terlihat dan menu Lainnya tidak ditemukan.")
-                time.sleep(2)
+                        # Cek tombol 'Berikutnya' / 'Next' terlebih dahulu jika belum terbuka
+                        btn_next_xpath = "//div[@role='button'][.//span[text()='Berikutnya' or text()='Next']] | //div[@aria-label='Berikutnya' or @aria-label='Next']"
+                        for step_n in range(2):
+                            next_btns = driver.find_elements(By.XPATH, btn_next_xpath)
+                            visible_next = [b for b in next_btns if b.is_displayed() and b.get_attribute("aria-disabled") != "true"]
+                            if not visible_next:
+                                break
+                            log_step_new(f"Mengklik 'Berikutnya' ({step_n+1}) untuk menampilkan opsi jadwal...")
+                            driver.execute_script("arguments[0].click();", visible_next[-1])
+                            time.sleep(2.5)
+                            jadwal_btns = driver.find_elements(By.XPATH, btn_jadwal_xpath)
+                            visible_jadwal = [b for b in jadwal_btns if b.is_displayed()]
+                            if visible_jadwal:
+                                driver.execute_script("arguments[0].click();", visible_jadwal[-1])
+                                time.sleep(2)
+                                break
+
+                    if not visible_jadwal:
+                        date_input, time_input = _find_visible_schedule_inputs()
+                    if not visible_jadwal and not (date_input and time_input):
+                        log_step_new("Layar sempit (portrait) terdeteksi. Membuka menu 'Lainnya' (...)")
+                        btn_lainnya_xpath = "//div[@aria-label='Lainnya' or @aria-label='More' or @aria-label='Opsi' or @aria-label='Options' or @aria-label='See more' or @aria-label='Lihat selengkapnya']"
+                        btn_lainnya = driver.find_elements(By.XPATH, btn_lainnya_xpath)
+                        if btn_lainnya and btn_lainnya[-1].is_displayed():
+                            driver.execute_script("arguments[0].click();", btn_lainnya[-1])
+                            time.sleep(2)
+                            jadwal_btns = driver.find_elements(By.XPATH, btn_jadwal_xpath)
+                            visible_jadwal = [b for b in jadwal_btns if b.is_displayed()]
+                            if visible_jadwal:
+                                driver.execute_script("arguments[0].click();", visible_jadwal[-1])
+                                time.sleep(2)
+                            else:
+                                raise Exception("Tidak ada tombol Jadwal di menu Lainnya.")
+                        else:
+                            raise Exception("Tombol Jadwalkan tidak terlihat dan menu Lainnya tidak ditemukan.")
+
+                # Setelah menu penjadwalan terbuka, pastikan radio/switch 'Jadwalkan untuk nanti' aktif!
+                _enable_schedule_toggle_or_radio()
+                time.sleep(1)
             except Exception as e:
-                log_step_new(f"Gagal menemukan tombol Jadwalkan: {e}")
+                log_step_new(f"Gagal menemukan/membuka opsi Jadwalkan: {e}")
                 if dashboard:
                     dashboard.current_job["scheduling"] = "Gagal buka opsi"
                     if dashboard.statuses.get(task_key or post_path) != "success":
@@ -2468,120 +2571,221 @@ def run_fb_scheduled_task_new_ui(driver, profile_name, post_path, schedule_time,
             time_val = dt_obj.strftime("%H:%M")
 
             try:
-                inputs = driver.find_elements(By.XPATH, "//div[@role='dialog']//input | //form//input")
-                visible_inputs = [inp for inp in inputs if inp.is_displayed() and inp.get_attribute("type") not in ["file", "hidden", "radio", "checkbox"]]
-                
-                if len(visible_inputs) >= 2:
-                    date_input = visible_inputs[-2]
-                    driver.execute_script("arguments[0].focus(); arguments[0].click();", date_input)
+                date_input, time_input = _find_visible_schedule_inputs()
+                if not (date_input and time_input):
+                    # Tunggu sebentar jika UI masih merender input tanggal/jam
+                    time.sleep(2)
+                    _enable_schedule_toggle_or_radio()
+                    date_input, time_input = _find_visible_schedule_inputs()
+
+                if not (date_input and time_input):
+                    raise Exception("Input tanggal dan jam tidak ditemukan di UI penjadwalan. Dibatalkan agar tidak langsung terposting.")
+
+                # Isi Tanggal
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'}); arguments[0].focus(); arguments[0].click();", date_input)
+                time.sleep(0.5)
+                date_input.send_keys(Keys.CONTROL + "a")
+                time.sleep(0.2)
+                date_input.send_keys(Keys.BACKSPACE)
+                time.sleep(0.3)
+                date_input.send_keys(date_val + Keys.ENTER)
+                time.sleep(1.5)
+
+                # Isi Jam langsung pada time_input (fallback TAB jika stale)
+                try:
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'}); arguments[0].focus(); arguments[0].click();", time_input)
                     time.sleep(0.5)
-                    date_input.send_keys(Keys.CONTROL + "a")
+                    time_input.send_keys(Keys.CONTROL + "a")
                     time.sleep(0.2)
-                    date_input.send_keys(Keys.BACKSPACE)
-                    time.sleep(0.5)
-                    # Ketik tanggal dan langsung tekan ENTER tanpa jeda agar React FB tidak meresetnya
-                    date_input.send_keys(date_val + Keys.ENTER)
-                    time.sleep(1.5)
-                    
-                    # Setelah menekan ENTER di kotak tanggal, gunakan TAB untuk pindah ke kotak Jam
-                    # (Ini menghindari kotak jam tidak bisa diklik karena tertutup sesuatu)
+                    time_input.send_keys(Keys.BACKSPACE)
+                    time.sleep(0.3)
+                    time_input.send_keys(time_val + Keys.ENTER)
+                except Exception:
                     date_input.send_keys(Keys.TAB)
                     time.sleep(0.5)
-                    
-                    # Sekarang kotak jam seharusnya sudah aktif (terfokus)
                     active_el = driver.switch_to.active_element
                     active_el.send_keys(Keys.CONTROL + "a")
                     time.sleep(0.2)
                     active_el.send_keys(Keys.BACKSPACE)
-                    time.sleep(0.5)
-                    # Ketik jam dan langsung tekan ENTER secara bersamaan
+                    time.sleep(0.3)
                     active_el.send_keys(time_val + Keys.ENTER)
-                    time.sleep(2)
-                else:
-                    log_step_new("Input tanggal/jam tidak ditemukan, mencoba metode TAB...")
-                    ActionChains(driver).send_keys(Keys.TAB).send_keys(Keys.TAB).perform()
+                time.sleep(2)
             except Exception as e:
-                log_step_new(f"Gagal mengatur waktu: {e}")
+                log_step_new(f"Gagal mengatur waktu jadwal: {e}")
+                if dashboard:
+                    dashboard.current_job["scheduling"] = "Gagal set waktu"
+                    if dashboard.statuses.get(task_key or post_path) != "success":
+                        dashboard.statuses[task_key or post_path] = "failed"
+                        dashboard.failed_count += 1
+                    dashboard.render()
+                update_post_status(post_path, f"Gagal set waktu: {e}", 0)
+                return False
 
-            log_step_new("Menyimpan jadwal kalender...")
+            # Klik tombol 'Selesai' / 'Done' / 'Simpan' / 'Save' di modal Opsi penjadwalan
+            # (Catatan: di UI post/create baru, modal Opsi penjadwalan tidak selalu berada di dalam div[@role='dialog']!)
+            log_step_new("Menyimpan pengaturan jadwal (klik Selesai/Simpan)...")
             try:
-                # Menambahkan variasi huruf besar/kecil dan menggunakan case-insensitive match
-                xpath_confirm = (
-                    "//div[@role='button']//span["
-                    "contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'jadwalkan untuk nanti') "
-                    "or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'simpan') "
-                    "or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'save') "
-                    "or text()='Jadwalkan' or text()='Schedule'"
+                xpath_save_modal = (
+                    "//div[@role='button'][not(@aria-disabled='true')]["
+                    "translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='selesai' "
+                    "or translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='done' "
+                    "or translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='simpan' "
+                    "or translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='save'"
                     "]"
+                    " | //div[@role='button'][not(@aria-disabled='true')][.//span["
+                    "translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='selesai' "
+                    "or translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='done' "
+                    "or translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='simpan' "
+                    "or translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='save'"
+                    "]]"
                 )
-                konfirmasi_btns = driver.find_elements(By.XPATH, xpath_confirm)
-                if konfirmasi_btns:
-                    visible_btns = [b for b in konfirmasi_btns if b.is_displayed()]
-                    if visible_btns:
-                        driver.execute_script("arguments[0].click();", visible_btns[-1])
-                    else:
-                        driver.execute_script("arguments[0].click();", konfirmasi_btns[-1])
+                save_btns = [b for b in driver.find_elements(By.XPATH, xpath_save_modal) if b.is_displayed()]
+                if save_btns:
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", save_btns[-1])
+                    time.sleep(0.3)
+                    driver.execute_script("arguments[0].click();", save_btns[-1])
+                    log_step_new("Tombol 'Selesai'/'Simpan' jadwal diklik, menunggu modal tertutup...")
+                    # Tunggu sampai modal Opsi penjadwalan benar-benar tertutup
+                    for _ in range(10):
+                        time.sleep(0.5)
+                        radios_still_open = [
+                            r for r in driver.find_elements(By.XPATH, "//input[@type='radio' and @value='SCHEDULE_FOR_LATER']")
+                            if r.is_displayed()
+                        ]
+                        if not radios_still_open:
+                            break
+                    time.sleep(1.5)
                 else:
-                    log_step_new("Tombol simpan kalender spesifik tidak ditemukan, mencoba ENTER...")
-                    ActionChains(driver).send_keys(Keys.ENTER).perform()
+                    time.sleep(1.5)
             except Exception as e:
-                log_step_new(f"Peringatan saat menyimpan kalender: {e}")
-                ActionChains(driver).send_keys(Keys.ENTER).perform()
-                
-            log_step_new("Menunggu animasi UI kalender tertutup...")
-            time.sleep(5)
+                log_step_new(f"Catatan saat menyimpan modal kalender: {e}")
 
-        log_step_new("Mengklik tombol FINAL: Jadwalkan Postingan...")
-        time.sleep(2)
-        final_btn_xpath = (
-            "//div[@role='button']//span[contains(text(), 'Jadwalkan Postingan') or contains(text(), 'Jadwalkan') or contains(text(), 'Schedule') or contains(text(), 'Posting') or contains(text(), 'Post') or contains(text(), 'Kirim')]"
-            "| //div[@role='button'][@aria-label='Jadwalkan Postingan' or @aria-label='Jadwalkan' or @aria-label='Schedule' or @aria-label='Posting' or @aria-label='Post' or @aria-label='Kirim']"
-        )
-        try:
-            final_btns = driver.find_elements(By.XPATH, final_btn_xpath)
-            visible_final = [b for b in final_btns if b.is_displayed()]
-            if visible_final:
-                driver.execute_script("arguments[0].click();", visible_final[-1])
-            elif final_btns:
-                driver.execute_script("arguments[0].click();", final_btns[-1])
-            else:
-                ActionChains(driver).send_keys(Keys.CONTROL).send_keys(Keys.ENTER).perform()
-        except Exception as e:
-            log_step_new(f"Tombol final tidak bisa diklik: {e}")
-            if dashboard:
-                dashboard.current_job["scheduling"] = "Failed"
-                if dashboard.statuses.get(task_key or post_path) != "success":
-                    dashboard.statuses[task_key or post_path] = "failed"
-                    dashboard.failed_count += 1
-                dashboard.render()
-            update_post_status(post_path, f"Tombol final gagal: {e}", 0)
-            return False
+        if schedule_time:
+            log_step_new("Mengklik tombol FINAL: Jadwalkan Postingan...")
+            time.sleep(1.5)
+            # STRICT GUARD: Saat schedule_time aktif, HANYA boleh klik tombol submit Jadwalkan Postingan / Schedule post!
+            # Prioritaskan 'Jadwalkan Postingan' / 'Jadwalkan Reel' / 'Schedule post' agar TIDAK pernah salah klik tombol pembuka modal 'Jadwalkan' atau tombol 'Posting'!
+            primary_sched_xpath = (
+                "//div[@role='button'][not(@aria-disabled='true')]["
+                "translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='jadwalkan postingan' "
+                "or translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='jadwalkan reel' "
+                "or translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='schedule post' "
+                "or translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='schedule reel'"
+                "]"
+                "| //div[@role='button'][not(@aria-disabled='true')][.//span["
+                "translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='jadwalkan postingan' "
+                "or translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='jadwalkan reel' "
+                "or translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='schedule post' "
+                "or translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='schedule reel'"
+                "]]"
+            )
+            fallback_sched_xpath = (
+                "//div[@role='button'][not(@aria-disabled='true')]["
+                "translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='jadwalkan' "
+                "or translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='schedule'"
+                "]"
+                "| //div[@role='button'][not(@aria-disabled='true')][.//span["
+                "translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='jadwalkan' "
+                "or translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='schedule'"
+                "]]"
+            )
+            clicked_schedule = False
+            for attempt in range(10):
+                # 1. Prioritaskan tombol submit utama ('Jadwalkan Postingan' / 'Schedule post')
+                primary_btns = [b for b in driver.find_elements(By.XPATH, primary_sched_xpath) if b.is_displayed()]
+                if primary_btns:
+                    target_btn = primary_btns[-1]
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_btn)
+                    time.sleep(0.3)
+                    driver.execute_script("arguments[0].click();", target_btn)
+                    log_step_new(f"Tombol FINAL '{target_btn.text or target_btn.get_attribute('aria-label')}' diklik!", is_success=True)
+                    clicked_schedule = True
+                    break
+
+                # 2. Fallback hanya jika tombol 'Posting' sudah TIDAK ada (artinya tombol submit memang hanya bertuliskan 'Jadwalkan'/'Schedule')
+                if attempt >= 4:
+                    post_now_btns = [
+                        b for b in driver.find_elements(By.XPATH, "//div[@role='button'][@aria-label='Posting' or @aria-label='Post']")
+                        if b.is_displayed()
+                    ]
+                    if not post_now_btns:
+                        fb_btns = [b for b in driver.find_elements(By.XPATH, fallback_sched_xpath) if b.is_displayed()]
+                        if fb_btns:
+                            target_btn = fb_btns[-1]
+                            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_btn)
+                            time.sleep(0.3)
+                            driver.execute_script("arguments[0].click();", target_btn)
+                            log_step_new(f"Tombol FINAL '{target_btn.text or target_btn.get_attribute('aria-label')}' diklik!", is_success=True)
+                            clicked_schedule = True
+                            break
+                time.sleep(1)
+
+            if not clicked_schedule:
+                err_msg = "GAGAL JADWAL: Tombol 'Jadwalkan Postingan'/'Schedule post' tidak muncul setelah klik Selesai (dibatalkan agar tidak langsung terposting!)."
+                log_step_new(err_msg)
+                if dashboard:
+                    dashboard.current_job["scheduling"] = "Gagal (Batal Post)"
+                    if dashboard.statuses.get(task_key or post_path) != "success":
+                        dashboard.statuses[task_key or post_path] = "failed"
+                        dashboard.failed_count += 1
+                    dashboard.render()
+                update_post_status(post_path, err_msg, 0)
+                return False
+        else:
+            log_step_new("Mengklik tombol FINAL: Posting SEKARANG...")
+            time.sleep(2)
+            final_btn_xpath = (
+                "//div[@role='button'][not(@aria-disabled='true')]//span[text()='Posting' or text()='Post' or text()='Kirim']"
+                "| //div[@role='button'][not(@aria-disabled='true')][@aria-label='Posting' or @aria-label='Post' or @aria-label='Kirim']"
+            )
+            try:
+                final_btns = driver.find_elements(By.XPATH, final_btn_xpath)
+                visible_final = [b for b in final_btns if b.is_displayed()]
+                if visible_final:
+                    driver.execute_script("arguments[0].click();", visible_final[-1])
+                elif final_btns:
+                    driver.execute_script("arguments[0].click();", final_btns[-1])
+                else:
+                    raise Exception("Tombol Posting tidak ditemukan.")
+            except Exception as e:
+                log_step_new(f"Tombol final tidak bisa diklik: {e}")
+                if dashboard:
+                    dashboard.current_job["scheduling"] = "Failed"
+                    if dashboard.statuses.get(task_key or post_path) != "success":
+                        dashboard.statuses[task_key or post_path] = "failed"
+                        dashboard.failed_count += 1
+                    dashboard.render()
+                update_post_status(post_path, f"Tombol final gagal: {e}", 0)
+                return False
 
         log_step_new("Menunggu notifikasi konfirmasi Facebook (maks 1 menit)...")
-        time.sleep(2)
+        time.sleep(3)
         start_check = time.time()
-        toast_xpath = (
-            "//*[contains(text(), 'dijadwalkan') or contains(text(), 'scheduled') "
-            "or contains(text(), 'Lihat') or contains(text(), 'View') "
-            "or contains(text(), 'diterbitkan') or contains(text(), 'published') "
-            "or contains(text(), 'dibagikan') or contains(text(), 'shared')] "
-            "| //div[@role='alert']"
-        )
+        if schedule_time:
+            toast_xpath = (
+                "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'dijadwalkan') "
+                "or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'scheduled')]"
+            )
+        else:
+            toast_xpath = (
+                "//*[contains(text(), 'diterbitkan') or contains(text(), 'published') "
+                "or contains(text(), 'dibagikan') or contains(text(), 'shared')]"
+            )
         success_detected = False
         while time.time() - start_check < 60:
+            try:
+                if "facebook.com/post/create" not in driver.current_url:
+                    log_step_new("Halaman posting telah tertutup / redirect (sukses).", is_success=True)
+                    success_detected = True
+                    break
+            except Exception:
+                pass
+
             try:
                 toast_els = driver.find_elements(By.XPATH, toast_xpath)
                 visible_toasts = [el for el in toast_els if el.is_displayed()]
                 if visible_toasts:
                     log_step_new("Notifikasi konfirmasi Facebook terdeteksi!", is_success=True)
-                    success_detected = True
-                    break
-            except Exception:
-                pass
-                
-            try:
-                if "facebook.com/post/create" not in driver.current_url:
-                    log_step_new("Halaman posting telah tertutup (sukses).", is_success=True)
                     success_detected = True
                     break
             except Exception:
@@ -2955,19 +3159,29 @@ def run_fb_scheduled_task(driver, profile_name, post_path, schedule_time=None, p
                     active_el.send_keys(Keys.ENTER)
                     time.sleep(2)
 
-                    # 4. Klik Jadwalkan FINAL
+                    # 4. Klik Jadwalkan FINAL (STRICT: HANYA boleh klik 'Jadwalkan'/'Schedule', JANGAN pernah klik 'Posting'/'Post')
                     log_step("Mengklik tombol 'Jadwalkan' final...", dashboard)
                     final_xpath = (
-                        "//div[@role='dialog']//div[@role='button']//span[text()='Jadwalkan' or text()='Schedule' or text()='Posting' or text()='Post' or text()='Kirim']"
-                        "| //div[@role='dialog']//div[@aria-label='Jadwalkan' or @aria-label='Schedule' or @aria-label='Posting' or @aria-label='Post']"
+                        "//div[@role='dialog']//div[@role='button'][not(@aria-disabled='true')]//span["
+                        "translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='jadwalkan' "
+                        "or translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='jadwalkan postingan' "
+                        "or translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='schedule' "
+                        "or translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='schedule post'"
+                        "]"
+                        "| //div[@role='dialog']//div[@role='button'][not(@aria-disabled='true')]["
+                        "translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='jadwalkan' "
+                        "or translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='jadwalkan postingan' "
+                        "or translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='schedule' "
+                        "or translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='schedule post'"
+                        "]"
                     )
-                    try:
-                        final_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, final_xpath)))
-                        driver.execute_script("arguments[0].click();", final_btn)
-                    except:
-                        ActionChains(driver).send_keys(Keys.ENTER).perform()
+                    final_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, final_xpath)))
+                    driver.execute_script("arguments[0].click();", final_btn)
                 except Exception as e:
-                    log_step(f"Proses klik jadwal selesai/dilewati...", dashboard)
+                    err_msg = f"GAGAL JADWAL: Tombol 'Jadwalkan' tidak ditemukan ({e}). Dibatalkan agar tidak langsung terposting!"
+                    log_step(err_msg, dashboard)
+                    update_post_status(post_path, err_msg, 0)
+                    return False
 
             log_step("Menunggu konfirmasi notifikasi Facebook (maks 1 menit)...", dashboard)
             time.sleep(2)

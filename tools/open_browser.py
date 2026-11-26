@@ -7,7 +7,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 
 # Import helper dari utils
-from utils import ensure_vnc_running, get_lan_ip, cleanup_profile
+from utils import ensure_vnc_running, get_lan_ip, cleanup_profile, get_brave_binary_path
 
 # Pastikan DISPLAY teratur untuk VNC di Termux
 if "com.termux" in os.environ.get("PREFIX", ""):
@@ -43,6 +43,10 @@ def setup_visible_browser(profile_path=None):
         options.binary_location = '/data/data/com.termux/files/usr/bin/chromium-browser'
     elif os.path.exists('/data/data/com.termux/files/usr/bin/chromium'):
         options.binary_location = '/data/data/com.termux/files/usr/bin/chromium'
+    else:
+        brave_path = get_brave_binary_path()
+        if brave_path:
+            options.binary_location = brave_path
     
     service_path = '/data/data/com.termux/files/usr/bin/chromedriver'
     service = Service(service_path) if os.path.exists(service_path) else None

@@ -31,6 +31,11 @@ def setup_browser():
         options.binary_location = '/data/data/com.termux/files/usr/bin/chromium-browser'
     elif os.path.exists('/data/data/com.termux/files/usr/bin/chromium'):
         options.binary_location = '/data/data/com.termux/files/usr/bin/chromium'
+    else:
+        from utils import get_brave_binary_path
+        brave_path = get_brave_binary_path()
+        if brave_path:
+            options.binary_location = brave_path
     
     service = Service('/data/data/com.termux/files/usr/bin/chromedriver') if os.path.exists('/data/data/com.termux/files/usr/bin/chromedriver') else None
     return webdriver.Chrome(service=service, options=options) if service else webdriver.Chrome(options=options)

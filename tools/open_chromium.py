@@ -19,11 +19,23 @@ def main():
     options.add_argument('--window-size=1280,800')
     options.add_argument('--start-maximized')
     
-    # Deteksi lokasi binary Chromium di Termux
+    # Deteksi lokasi binary Browser (Termux Chromium / Desktop Brave)
     if os.path.exists('/data/data/com.termux/files/usr/bin/chromium-browser'):
         options.binary_location = '/data/data/com.termux/files/usr/bin/chromium-browser'
     elif os.path.exists('/data/data/com.termux/files/usr/bin/chromium'):
         options.binary_location = '/data/data/com.termux/files/usr/bin/chromium'
+    else:
+        for bp in [
+            os.environ.get("BRAVE_PATH", ""),
+            r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+            r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), r"BraveSoftware\Brave-Browser\Application\brave.exe"),
+            "/usr/bin/brave-browser",
+            "/usr/bin/brave",
+        ]:
+            if bp and os.path.exists(bp):
+                options.binary_location = bp
+                break
     
     # Deteksi lokasi ChromeDriver
     service_path = '/data/data/com.termux/files/usr/bin/chromedriver'

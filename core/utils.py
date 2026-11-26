@@ -10,6 +10,22 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 
+def get_brave_binary_path():
+    """Mencari path executable Brave Browser (Windows/Linux/macOS)."""
+    candidates = [
+        os.environ.get("BRAVE_PATH", ""),
+        r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+        r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), r"BraveSoftware\Brave-Browser\Application\brave.exe"),
+        "/usr/bin/brave-browser",
+        "/usr/bin/brave",
+        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            return path
+    return shutil.which("brave") or shutil.which("brave-browser")
+
 # Deteksi Environment (Termux Android atau PC Desktop)
 IS_TERMUX = "com.termux" in os.environ.get("PREFIX", "")
 if IS_TERMUX:
@@ -18,7 +34,7 @@ if IS_TERMUX:
     # Gunakan DISPLAY :1 (Standar VNC Server)
     os.environ["DISPLAY"] = ":1"
 else:
-    CHROME_PATH = None
+    CHROME_PATH = get_brave_binary_path()
     CHROMEDRIVER_PATH = None
 
 def get_lan_ip():
@@ -102,10 +118,10 @@ def cleanup_profile(profile_path):
                 pass
 
 def kill_profile_lock_and_processes(profile_path):
-    """Membunuh proses Chrome/Chromedriver yang masih mengunci profil ini dan membersihkan SingletonLock."""
+    """Membunuh proses Chrome/Brave yang masih mengunci profil ini dan membersihkan lock file."""
     profile_path = os.path.abspath(profile_path)
     
-    # 1. Hentikan proses Chrome yang masih memakai profile_path ini jika di Termux/Linux
+    # 1. Hentikan proses browser yang masih memakai profile_path ini
     if IS_TERMUX:
         try:
             res = subprocess.run(["pgrep", "-f", profile_path], stdout=subprocess.PIPE, text=True)
@@ -121,9 +137,27 @@ def kill_profile_lock_and_processes(profile_path):
                 time.sleep(0.5)
         except Exception:
             pass
+    elif sys.platform == "win32":
+        try:
+            escaped_path = profile_path.replace("'", "''")
+            ps_cmd = (
+                f"Get-CimInstance Win32_Process | Where-Object {{ "
+                f"($_.Name -eq 'brave.exe' -or $_.Name -eq 'chrome.exe') -and "
+                f"$_.CommandLine -and $_.CommandLine.IndexOf('{escaped_path}', [System.StringComparison]::OrdinalIgnoreCase) -ge 0 "
+                f"}} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"
+            )
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_cmd],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            )
+            time.sleep(1.0)
+        except Exception:
+            pass
             
     # 2. Hapus file lock Singleton jika masih tersisa
-    for lock_name in ["SingletonLock", "SingletonSocket", "SingletonCookie"]:
+    for lock_name in ["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"]:
         lock_file = os.path.join(profile_path, lock_name)
         if os.path.exists(lock_file) or os.path.islink(lock_file):
             try:
